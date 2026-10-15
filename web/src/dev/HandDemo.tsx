@@ -2,6 +2,7 @@ import { useState } from "react";
 import { cardToSymbol, isRed } from "../core/cards";
 import type { Action, Card, HandEvent, HandView, TableConfig } from "../core/types";
 import { getCore } from "../worker/core";
+import { AnalysisPanel } from "./AnalysisPanel";
 
 type Hand = { config: TableConfig; seed: string; view: HandView };
 
@@ -132,6 +133,8 @@ export function HandDemo() {
           )}
 
           {error && <p className="error">{error}</p>}
+
+          <AnalysisPanel config={hand.config} seed={hand.seed} view={view} />
 
           <details className="log">
             <summary>Event log ({view.events.length} events) · seed {hand.seed}</summary>

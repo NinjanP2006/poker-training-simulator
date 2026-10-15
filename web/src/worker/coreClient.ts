@@ -46,6 +46,7 @@ export function createCore(): Core {
     viewHand: (...a) => call("viewHand", ...a),
     evaluate: (...a) => call("evaluate", ...a),
     equity: (...a) => call("equity", ...a),
+    analyze: (...a) => call("analyze", ...a),
     parseRange: (...a) => call("parseRange", ...a),
     rangeToNotation: (...a) => call("rangeToNotation", ...a),
     evalThroughput: (...a) => call("evalThroughput", ...a),

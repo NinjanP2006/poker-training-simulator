@@ -118,18 +118,50 @@ export type MistakeCategory =
   | "sizing"
   | "missedValue";
 
+/** One action and its estimated value (all EVs are estimates; see analysis.rs). */
+export type ActionEv = {
+  action: Action;
+  ev: number; // chips, relative to folding now
+  foldFrequency: number | null; // bets/raises: assumed chance every opponent folds
+  breakEvenFold: number | null; // bets/raises: how often a pure bluff must work
+  equityWhenCalled: number | null; // bets/raises: equity against the hands that continue
+};
+
+export type Outs = {
+  clean: Card[];
+  dirty: Card[]; // improve you, but at least 20% of their range still beats you
+  unseen: number; // 47 on the flop, 46 on the turn
+  nextCard: number; // chance the next card is an out
+  byRiver: number | null; // flop only: chance of hitting by the river
+  ruleOfThumb: number; // Rule of 4 on the flop, Rule of 2 on the turn
+};
+
+/** Everything the math panel shows for one decision, computed by the core. */
 export type DecisionAnalysis = {
   street: Street;
-  pot: number;
-  toCall: number;
+  hero: number;
+  opponents: number;
+  pot: number; // P: includes any bet you face
+  toCall: number; // C
   effectiveStack: number;
   equity: EquityResult;
   potOdds: number;
-  mdf: number | null;
+  mdf: number | null; // only when facing a bet
   spr: number;
-  impliedOddsNeeded: number | null;
-  outs: { clean: Card[]; dirty: Card[] } | null;
-  evByAction: { action: Action; ev: number }[];
+  impliedOddsNeeded: number | null; // only when facing a bet; 0 if the call already pays
+  outs: Outs | null; // flop/turn, heads-up, when behind
+  evByAction: ActionEv[];
+};
+
+export type AnalysisOptions = {
+  equity?: Partial<EquityOptions>;
+  betFractions?: number[]; // sizes as fractions of the pot after calling (default 1/3, 1/2, 3/4, 1)
+  foldFrequency?: number; // override the opponent fold model
+  extraActions?: Action[]; // also evaluate these, e.g. the size actually chosen
+};
+
+/** An analysis graded after the player acted (hand review, Phase 8). */
+export type ReviewedDecision = DecisionAnalysis & {
   chosen: Action;
   evLost: number; // in big blinds
   label: DecisionLabel;
@@ -141,7 +173,7 @@ export type HandHistory = {
   seed: string; // replays the shuffle exactly
   config: TableConfig;
   events: HandEvent[];
-  analyses: DecisionAnalysis[]; // one per hero decision
+  analyses: ReviewedDecision[]; // one per hero decision
 };
 
 // The WASM API itself is typed in src/worker/protocol.ts (CoreApi).

@@ -5,7 +5,7 @@
 import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, it } from "vitest";
 import { parseCards } from "../core/cards";
-import type { Action, HandView, TableConfig } from "../core/types";
+import type { Action, DecisionAnalysis, HandView, TableConfig } from "../core/types";
 import * as wasm from "../wasm/poker_wasm";
 
 beforeAll(() => {
@@ -96,6 +96,43 @@ describe("ranges and equity across the boundary", () => {
     expect(preflop.equity).toBeGreaterThan(0.75);
     expect(preflop.equity).toBeLessThan(0.88);
     expect(preflop.stdErr).toBeGreaterThan(0);
+  });
+
+  it("analyzes a decision facing a bet", () => {
+    const view: HandView = wasm.newHand(config, "42"); // seat 0 (small blind) faces 1 more
+    const villain = wasm.parseRange("22+, A2s+, KTo+");
+    const a: DecisionAnalysis = wasm.analyze(config, "42", view.events, 0, Uint32Array.from([1]), villain, undefined);
+
+    expect(a).toMatchObject({ street: "preflop", hero: 0, opponents: 1, pot: 3, toCall: 1, outs: null });
+    expect(a.potOdds).toBeCloseTo(1 / 4); // C / (P + C)
+    expect(a.mdf).toBeCloseTo(2 / 3); // bet of 1 into a pot of 2
+    expect(a.equity.method).toBe("montecarlo");
+    expect(a.evByAction.map((x) => x.action.kind).slice(0, 2)).toEqual(["fold", "call"]);
+    expect(a.evByAction[0]).toEqual({ action: { kind: "fold" }, ev: 0, foldFrequency: null, breakEvenFold: null, equityWhenCalled: null });
+    const raise = a.evByAction.find((x) => x.action.kind === "raise");
+    expect(raise?.breakEvenFold).toBeGreaterThan(0);
+    expect(raise?.equityWhenCalled).toBeGreaterThan(0);
+  });
+
+  it("analyzes a decision with nothing to call", () => {
+    let view: HandView = wasm.newHand(config, "42");
+    view = act(view, { kind: "call" });
+    view = act(view, { kind: "check" }); // flop: seat 1 acts first
+    const villain = wasm.parseRange("22+, A2s+, KTo+");
+    const a: DecisionAnalysis = wasm.analyze(config, "42", view.events, 1, Uint32Array.from([0]), villain, { foldFrequency: 0.5 });
+    expect(a.street).toBe("flop");
+    expect(a.toCall).toBe(0);
+    expect(a.mdf).toBeNull();
+    expect(a.impliedOddsNeeded).toBeNull();
+    expect(a.evByAction[0].action).toEqual({ kind: "check" });
+    expect(a.evByAction.find((x) => x.action.kind === "bet")?.foldFrequency).toBe(0.5);
+  });
+
+  it("explains analysis errors", () => {
+    const view: HandView = wasm.newHand(config, "42");
+    const villain = wasm.parseRange("22+");
+    expect(() => wasm.analyze(config, "42", view.events, 1, Uint32Array.from([0]), villain, undefined)).toThrow(/hero's turn/);
+    expect(() => wasm.analyze(config, "42", view.events, 0, new Uint32Array(), new Float32Array(), undefined)).toThrow(/no range given/);
   });
 
   it("evaluates hands", () => {

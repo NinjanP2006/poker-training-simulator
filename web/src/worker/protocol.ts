@@ -2,7 +2,9 @@
 
 import type {
   Action,
+  AnalysisOptions,
   Card,
+  DecisionAnalysis,
   EquityOptions,
   EquityResult,
   HandEvent,
@@ -17,6 +19,16 @@ export type EquityRequest = {
   board: Card[];
   dead?: Card[];
   options?: Partial<EquityOptions>;
+};
+
+export type AnalysisRequest = {
+  config: TableConfig;
+  seed: string;
+  events: HandEvent[];
+  heroSeat: number;
+  /** A range for each opponent still in the pot. */
+  ranges: { seat: number; range: Range }[];
+  options?: AnalysisOptions;
 };
 
 /**
@@ -36,6 +48,8 @@ export interface CoreApi {
   /** Scores 5–7 cards; higher wins. */
   evaluate(cards: Card[]): number;
   equity(request: EquityRequest): EquityResult;
+  /** Every math-panel number for hero's current decision. Throws if it isn't hero's turn. */
+  analyze(request: AnalysisRequest): DecisionAnalysis;
   parseRange(notation: string): Range;
   rangeToNotation(range: Range): string;
   /** 7-card evaluations per second inside the worker. */

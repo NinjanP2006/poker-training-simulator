@@ -15,6 +15,13 @@ const api: CoreApi = {
   evaluate: (cards) => wasm.evaluate(Uint8Array.from(cards)),
   equity: ({ hero, villain, board, dead = [], options = {} }) =>
     wasm.equity(Uint8Array.from(hero), villain, Uint8Array.from(board), Uint8Array.from(dead), options),
+  analyze: ({ config, seed, events, heroSeat, ranges, options = {} }) => {
+    // One flat array of 1,326 weights per range keeps the boundary crossing cheap.
+    const seats = Uint32Array.from(ranges.map((r) => r.seat));
+    const weights = new Float32Array(ranges.length * 1326);
+    ranges.forEach((r, i) => weights.set(r.range, i * 1326));
+    return wasm.analyze(config, seed, events, heroSeat, seats, weights, options);
+  },
   parseRange: (notation) => wasm.parseRange(notation),
   rangeToNotation: (range) => wasm.rangeToNotation(range),
   evalThroughput: (hands) => wasm.evalThroughput(hands),

@@ -210,6 +210,106 @@ h1 {
   color: var(--muted);
 }
 
+.analysis {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.analysis h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.range-input {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+  max-width: 32rem;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.metrics dt {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.metrics dd {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.note {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.outs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.out-cards {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.mini {
+  padding: 0 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.mini.red {
+  color: var(--red-suit);
+}
+
+.ev-table {
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ev-table th,
+.ev-table td {
+  padding: 0.3rem 0.75rem;
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+}
+
+.ev-table th:first-child,
+.ev-table td:first-child {
+  text-align: left;
+}
+
+.ev-table th {
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.ev-table tr.best td {
+  background: #eaf6ee;
+  font-weight: 600;
+}
+
 @media (max-width: 640px) {
   .fields {
     grid-template-columns: 1fr;
