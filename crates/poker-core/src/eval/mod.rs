@@ -1,8 +1,9 @@
 //! Hand evaluation: score 5–7 cards as one number where higher wins.
 //!
 //! `naive` is the simple, obviously-correct evaluator. It is the reference that
-//! the fast evaluator (Phase 1d) is tested against.
+//! `fast` (the one the rest of the engine uses) is built from and tested against.
 
+pub mod fast;
 pub mod naive;
 
 /// Hand categories, weakest to strongest. The discriminant is the value
@@ -58,6 +59,10 @@ impl HandRank {
         for (i, &rank) in ranks.iter().enumerate() {
             value |= (rank as u32) << (16 - 4 * i);
         }
+        HandRank(value)
+    }
+
+    pub(crate) const fn from_value(value: u32) -> HandRank {
         HandRank(value)
     }
 
