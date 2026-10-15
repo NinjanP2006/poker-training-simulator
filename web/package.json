@@ -5,8 +5,9 @@
   "type": "module",
   "packageManager": "pnpm@11.18.0",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build:wasm": "wasm-pack build ../crates/poker-wasm --target web --release --out-dir ../../web/src/wasm --no-pack",
+    "dev": "pnpm build:wasm && vite",
+    "build": "pnpm build:wasm && tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest"

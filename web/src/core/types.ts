@@ -57,10 +57,48 @@ export type HandEvent =
   // One event per winner of each pot, so split pots and odd chips are explicit.
   | { t: "award"; potIndex: number; seat: number; amount: number };
 
-/** Placeholder until the Rust game engine defines it (Phase 2). */
-export type HandState = unknown;
+// ---------- Hand state (derived by the engine from config + seed + events) ----------
+
+export type PlayerView = {
+  stack: number;
+  streetBet: number;
+  totalBet: number; // this is what side pots are built from
+  folded: boolean;
+  allIn: boolean;
+  hole: [Card, Card] | null;
+};
+
+/** What the player to act may do. Bet/raise amounts are totals for the street. */
+export type LegalActions = {
+  seat: number;
+  toCall: number; // 0 means they can check
+  callIsAllIn: boolean;
+  minRaiseTo: number | null; // null: can't bet or raise
+  maxRaiseTo: number; // all-in
+  isBet: boolean; // nobody has bet this street: use "bet", not "raise"
+};
+
+export type HandView = {
+  events: HandEvent[];
+  players: PlayerView[];
+  board: Card[];
+  street: Street;
+  pot: number; // chips in the middle not yet awarded
+  currentBet: number;
+  toAct: number | null;
+  legal: LegalActions | null;
+  complete: boolean;
+};
 
 // ---------- Equity and analysis ----------
+
+export type EquityOptions = {
+  budgetMs: number; // Monte Carlo time limit (default 80)
+  maxStdErr: number; // Monte Carlo stops below this (default 0.005)
+  exactLimit: number; // enumerate exactly up to this many evaluations (default 2,000,000)
+  maxSamples: number;
+  seed: number;
+};
 
 export type EquityResult = {
   equity: number;
@@ -69,6 +107,7 @@ export type EquityResult = {
   stdErr: number | null; // null when enumerated exactly
   method: "exact" | "montecarlo";
   evaluations: number;
+  liveCombos: number; // opponent combos left after blockers
 };
 
 export type DecisionLabel = "fine" | "marginal" | "mistake";
@@ -105,21 +144,4 @@ export type HandHistory = {
   analyses: DecisionAnalysis[]; // one per hero decision
 };
 
-// ---------- WASM boundary ----------
-
-/** The API the Rust core exposes to TypeScript (implemented in Phase 5). */
-export interface PokerCore {
-  newHand(config: TableConfig, seed: string): HandState;
-  applyAction(state: HandState, action: Action): HandState; // throws on illegal
-  legalActions(state: HandState): Action[];
-  evaluate(cards: CardMask): number;
-  equity(
-    hero: [Card, Card],
-    villain: Range,
-    board: Card[],
-    dead: CardMask,
-    opts: { budgetMs: number; maxStdErr: number },
-  ): EquityResult;
-  analyze(state: HandState, heroSeat: number, villainRange: Range): DecisionAnalysis;
-  parseRange(notation: string): Range;
-}
+// The WASM API itself is typed in src/worker/protocol.ts (CoreApi).
