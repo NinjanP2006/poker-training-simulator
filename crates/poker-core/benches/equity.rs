@@ -78,5 +78,39 @@ fn equity_benches(c: &mut Criterion) {
     );
 }
 
-criterion_group!(benches, equity_benches);
+/// A full decision analysis (equity per combo, outs, EV of every action),
+/// facing a flop bet and preflop.
+fn analysis_benches(c: &mut Criterion) {
+    use poker_core::analysis::{AnalysisOptions, analyze};
+    use poker_core::engine::{Action, Deck, HandState, TableConfig};
+
+    fast::init();
+    let config = TableConfig {
+        stacks: vec![1000, 1000],
+        small_blind: 1,
+        big_blind: 2,
+        button: 0,
+    };
+    let deck = Deck::stacked(&cards("Qs Qd Ah Kh Qh 7h 2c"));
+    let preflop = HandState::with_deck(config, deck).unwrap();
+    let mut flop = preflop.clone();
+    for action in [
+        Action::Raise { to: 6 },
+        Action::Call,
+        Action::Bet { amount: 8 },
+    ] {
+        flop.apply_action(action).unwrap();
+    }
+    let ranges = [(1, Range::parse("22+, A2s+, KTo+, QJs").unwrap())];
+    let opts = AnalysisOptions::default();
+
+    c.bench_function("analysis/flop_facing_bet", |b| {
+        b.iter(|| analyze(black_box(&flop), 0, &ranges, &opts).unwrap())
+    });
+    c.bench_function("analysis/preflop", |b| {
+        b.iter(|| analyze(black_box(&preflop), 0, &ranges, &opts).unwrap())
+    });
+}
+
+criterion_group!(benches, equity_benches, analysis_benches);
 criterion_main!(benches);

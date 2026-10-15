@@ -118,15 +118,61 @@ pub fn equity(
     if live.is_empty() {
         return Err(EquityError::NoLiveCombos);
     }
-
-    let unseen = 52 - spot.known.len() as u64; // cards hero can't see, before the villain's
-    let runouts_per_combo = choose(unseen - 2, spot.cards_to_come);
-    let work = live.len() as u64 * runouts_per_combo + choose(unseen, spot.cards_to_come);
-    if work <= opts.exact_limit {
-        Ok(spot.enumerate(&live))
+    if spot.exact_work(live.len()) <= opts.exact_limit {
+        Ok(spot.enumerate(&live).result)
     } else {
         spot.monte_carlo(&[live], opts)
     }
+}
+
+/// Hero's result against one combo in the opponent's range.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ComboEquity {
+    /// Combo index (see [`crate::range::combo_cards`]).
+    pub combo: usize,
+    pub weight: f32,
+    pub win: f64,
+    pub tie: f64,
+}
+
+impl ComboEquity {
+    pub fn equity(&self) -> f64 {
+        self.win + self.tie / 2.0
+    }
+}
+
+/// Equity against a range, plus hero's result against each live combo in it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EquityByCombo {
+    pub result: EquityResult,
+    pub combos: Vec<ComboEquity>,
+}
+
+/// Like [`equity`], but also reports hero's equity against every live combo
+/// (used to work out which hands an opponent would continue with).
+///
+/// When the spot is small enough to enumerate, the per-combo numbers are
+/// exact and come from the same pass as the total. Otherwise the total comes
+/// from regular Monte Carlo and each combo gets a smaller sample of its own,
+/// which is noisier but fine for ranking combos by strength.
+pub fn equity_by_combo(
+    hero: [Card; 2],
+    villain: &Range,
+    board: &[Card],
+    dead: CardMask,
+    opts: &EquityOptions,
+) -> Result<EquityByCombo, EquityError> {
+    let spot = Spot::new(hero, board, dead)?;
+    let live = spot.live_combos(villain);
+    if live.is_empty() {
+        return Err(EquityError::NoLiveCombos);
+    }
+    if spot.exact_work(live.len()) <= opts.exact_limit {
+        return Ok(spot.enumerate(&live));
+    }
+    let combos = spot.sample_each_combo(&live, opts.seed);
+    let result = spot.monte_carlo(&[live], opts)?;
+    Ok(EquityByCombo { result, combos })
 }
 
 /// The most opponents `equity_multiway` accepts (a full 10-seat table).
@@ -146,7 +192,7 @@ pub fn equity_multiway(
         "at most {MAX_OPPONENTS} opponents"
     );
     let spot = Spot::new(hero, board, dead)?;
-    let live: Vec<Vec<(CardMask, f32)>> = villains.iter().map(|v| spot.live_combos(v)).collect();
+    let live: Vec<Vec<LiveCombo>> = villains.iter().map(|v| spot.live_combos(v)).collect();
     if live.is_empty() || live.iter().any(Vec::is_empty) {
         return Err(EquityError::NoLiveCombos);
     }
@@ -181,57 +227,114 @@ impl Spot {
         })
     }
 
-    /// The range's combos that don't use a known card, as (cards, weight).
-    fn live_combos(&self, range: &Range) -> Vec<(CardMask, f32)> {
+    /// The range's combos that don't use a known card.
+    fn live_combos(&self, range: &Range) -> Vec<LiveCombo> {
         range
             .combos()
-            .map(|(i, _, w)| (combo_mask(i), w))
-            .filter(|(m, _)| !m.intersects(self.known))
+            .map(|(index, _, weight)| LiveCombo {
+                index,
+                mask: combo_mask(index),
+                weight,
+            })
+            .filter(|c| !c.mask.intersects(self.known))
             .collect()
     }
 
-    fn enumerate(&self, live: &[(CardMask, f32)]) -> EquityResult {
+    /// Hand evaluations an exact enumeration against `live` combos would take.
+    fn exact_work(&self, live: usize) -> u64 {
+        let unseen = 52 - self.known.len() as u64; // cards hero can't see, before the villain's
+        live as u64 * choose(unseen - 2, self.cards_to_come) + choose(unseen, self.cards_to_come)
+    }
+
+    fn enumerate(&self, live: &[LiveCombo]) -> EquityByCombo {
         let deck: Vec<Card> = CardMask::FULL_DECK
             .iter()
             .filter(|&c| !self.known.contains(c))
             .collect();
-        let (mut win, mut tie, mut total) = (0.0f64, 0.0f64, 0.0f64);
+        let mut wins = vec![0u32; live.len()];
+        let mut ties = vec![0u32; live.len()];
         let mut evaluations = 0u64;
 
         for_each_subset(&deck, self.cards_to_come as usize, |runout| {
             let board = self.board.union(runout);
             let hero_rank = fast::eval_mask(self.hero.union(board));
             evaluations += 1;
-            for &(combo, weight) in live {
-                if combo.intersects(runout) {
+            for (j, combo) in live.iter().enumerate() {
+                if combo.mask.intersects(runout) {
                     continue;
                 }
-                let villain_rank = fast::eval_mask(combo.union(board));
+                let villain_rank = fast::eval_mask(combo.mask.union(board));
                 evaluations += 1;
-                let w = weight as f64;
-                total += w;
                 if hero_rank > villain_rank {
-                    win += w;
+                    wins[j] += 1;
                 } else if hero_rank == villain_rank {
-                    tie += w;
+                    ties[j] += 1;
                 }
             }
         });
 
-        EquityResult {
-            equity: (win + tie / 2.0) / total,
-            win: win / total,
-            tie: tie / total,
-            std_err: None,
-            method: Method::Exact,
-            evaluations,
-            live_combos: live.len(),
+        // Every live combo meets the same number of runouts.
+        let runouts = choose(deck.len() as u64 - 2, self.cards_to_come) as f64;
+        let combos: Vec<ComboEquity> = live
+            .iter()
+            .enumerate()
+            .map(|(j, c)| ComboEquity {
+                combo: c.index,
+                weight: c.weight,
+                win: wins[j] as f64 / runouts,
+                tie: ties[j] as f64 / runouts,
+            })
+            .collect();
+        EquityByCombo {
+            result: summarize(&combos, evaluations),
+            combos,
         }
+    }
+
+    /// A separate Monte Carlo sample for each combo, sized so the total stays
+    /// around half a million evaluations.
+    fn sample_each_combo(&self, live: &[LiveCombo], seed: u64) -> Vec<ComboEquity> {
+        let samples = (500_000 / live.len() as u64).clamp(50, 1_000);
+        let mut rng = ChaCha8Rng::seed_from_u64(seed ^ 0x9E37_79B9_7F4A_7C15);
+        live.iter()
+            .map(|c| {
+                let used = self.known.union(c.mask);
+                let (mut wins, mut ties) = (0u64, 0u64);
+                for _ in 0..samples {
+                    let board = self.board.union(self.random_runout(used, &mut rng));
+                    let hero_rank = fast::eval_mask(self.hero.union(board));
+                    let villain_rank = fast::eval_mask(c.mask.union(board));
+                    if hero_rank > villain_rank {
+                        wins += 1;
+                    } else if hero_rank == villain_rank {
+                        ties += 1;
+                    }
+                }
+                ComboEquity {
+                    combo: c.index,
+                    weight: c.weight,
+                    win: wins as f64 / samples as f64,
+                    tie: ties as f64 / samples as f64,
+                }
+            })
+            .collect()
+    }
+
+    /// The remaining board cards, drawn uniformly from cards not in `used`.
+    fn random_runout(&self, used: CardMask, rng: &mut impl Rng) -> CardMask {
+        let mut runout = CardMask::empty();
+        while (runout.len() as u64) < self.cards_to_come {
+            let card = Card::from_index((rng.next_u32() % 52) as u8);
+            if !used.contains(card) && !runout.contains(card) {
+                runout.insert(card);
+            }
+        }
+        runout
     }
 
     fn monte_carlo(
         &self,
-        villains: &[Vec<(CardMask, f32)>],
+        villains: &[Vec<LiveCombo>],
         opts: &EquityOptions,
     ) -> Result<EquityResult, EquityError> {
         const MIN_SAMPLES: u64 = 1_000;
@@ -269,15 +372,7 @@ impl Spot {
                 continue;
             }
 
-            let mut runout = CardMask::empty();
-            while (runout.len() as u64) < self.cards_to_come {
-                let card = Card::from_index((rng.next_u32() % 52) as u8);
-                if !used.contains(card) && !runout.contains(card) {
-                    runout.insert(card);
-                }
-            }
-
-            let board = self.board.union(runout);
+            let board = self.board.union(self.random_runout(used, &mut rng));
             let hero_rank = fast::eval_mask(self.hero.union(board));
             let mut best_villain = HandRank::default();
             let mut tied = 0u32;
@@ -330,6 +425,30 @@ impl Spot {
     }
 }
 
+/// One opponent combo that doesn't use a known card.
+#[derive(Clone, Copy)]
+struct LiveCombo {
+    index: usize,
+    mask: CardMask,
+    weight: f32,
+}
+
+/// Weighted totals over per-combo results.
+fn summarize(combos: &[ComboEquity], evaluations: u64) -> EquityResult {
+    let total: f64 = combos.iter().map(|c| c.weight as f64).sum();
+    let win = combos.iter().map(|c| c.weight as f64 * c.win).sum::<f64>() / total;
+    let tie = combos.iter().map(|c| c.weight as f64 * c.tie).sum::<f64>() / total;
+    EquityResult {
+        equity: win + tie / 2.0,
+        win,
+        tie,
+        std_err: None,
+        method: Method::Exact,
+        evaluations,
+        live_combos: combos.len(),
+    }
+}
+
 /// Standard error of a mean, from the running sum and sum of squares.
 fn std_err(sum: f64, sum_sq: f64, n: u64) -> f64 {
     if n < 2 {
@@ -349,17 +468,17 @@ struct WeightedSampler {
 }
 
 impl WeightedSampler {
-    fn new(live: &[(CardMask, f32)]) -> WeightedSampler {
+    fn new(live: &[LiveCombo]) -> WeightedSampler {
         let mut total = 0.0;
         let cumulative = live
             .iter()
-            .map(|&(_, w)| {
-                total += w as f64;
+            .map(|c| {
+                total += c.weight as f64;
                 total
             })
             .collect();
         WeightedSampler {
-            combos: live.iter().map(|&(m, _)| m).collect(),
+            combos: live.iter().map(|c| c.mask).collect(),
             cumulative,
         }
     }
@@ -735,6 +854,71 @@ mod tests {
         assert_eq!(cache.len(), 2);
         ask(&mut cache, "TT+");
         assert_eq!(cache.hits(), 1);
+    }
+
+    #[test]
+    fn per_combo_breakdown_adds_up_to_the_total() {
+        let (hero, villain, board) = (
+            hand("Ah Kh"),
+            range("QQ+, AQs+, 0.5(JJ, TT)"),
+            cards("Qh 7h 2c"),
+        );
+        let opts = EquityOptions::default();
+        let total = equity(hero, &villain, &board, CardMask::empty(), &opts).unwrap();
+        let by_combo = equity_by_combo(hero, &villain, &board, CardMask::empty(), &opts).unwrap();
+        assert_eq!(by_combo.result, total);
+        assert_eq!(by_combo.combos.len(), total.live_combos);
+        let weight: f64 = by_combo.combos.iter().map(|c| c.weight as f64).sum();
+        let mean = by_combo
+            .combos
+            .iter()
+            .map(|c| c.weight as f64 * c.equity())
+            .sum::<f64>()
+            / weight;
+        assert!((mean - total.equity).abs() < 1e-12);
+        // Against QsQs-type sets hero is far behind; against AQs hero is ahead.
+        let qq = by_combo
+            .combos
+            .iter()
+            .find(|c| combo_mask(c.combo) == cards("Qs Qd").into_iter().collect())
+            .unwrap();
+        assert!(qq.equity() < 0.4);
+    }
+
+    #[test]
+    fn per_combo_sampling_tracks_exact_values() {
+        let (hero, villain) = (hand("As Kd"), range("TT+, AQs+"));
+        let exact = equity_by_combo(
+            hero,
+            &villain,
+            &cards("Ts 9h 2c"),
+            CardMask::empty(),
+            &EquityOptions::default(),
+        )
+        .unwrap();
+        let sampled_opts = EquityOptions {
+            exact_limit: 0,
+            ..EquityOptions::default()
+        };
+        let sampled = equity_by_combo(
+            hero,
+            &villain,
+            &cards("Ts 9h 2c"),
+            CardMask::empty(),
+            &sampled_opts,
+        )
+        .unwrap();
+        assert_eq!(sampled.result.method, Method::MonteCarlo);
+        for (e, s) in exact.combos.iter().zip(&sampled.combos) {
+            assert_eq!(e.combo, s.combo);
+            assert!(
+                (e.equity() - s.equity()).abs() < 0.08,
+                "combo {}: {} vs {}",
+                e.combo,
+                e.equity(),
+                s.equity()
+            );
+        }
     }
 
     #[test]

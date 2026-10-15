@@ -1,8 +1,10 @@
+pub mod analysis;
 pub mod card;
 pub mod engine;
 pub mod equity;
 pub mod eval;
 pub mod mask;
+pub mod math;
 pub mod range;
 
 pub use card::Card;

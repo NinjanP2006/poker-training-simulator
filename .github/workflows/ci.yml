@@ -41,7 +41,10 @@ jobs:
           if [ -n "$BASE" ] && git cat-file -e "$BASE:crates/poker-core/benches" 2>/dev/null; then
             git worktree add "$RUNNER_TEMP/base" "$BASE"
             cd "$RUNNER_TEMP/base"
-            cargo bench -p poker-core --benches -- --save-baseline base --warm-up-time 1 --measurement-time 3
+            # Name each benchmark file explicitly: older commits don't mark the
+            # library `bench = false`, and its test harness rejects Criterion's flags.
+            targets=$(for f in crates/poker-core/benches/*.rs; do printf -- '--bench %s ' "$(basename "$f" .rs)"; done)
+            cargo bench -p poker-core $targets -- --save-baseline base --warm-up-time 1 --measurement-time 3
             echo "found=true" >> "$GITHUB_OUTPUT"
           else
             echo "No earlier commit with benchmarks; nothing to compare against."
@@ -60,6 +63,14 @@ jobs:
         working-directory: web
     steps:
       - uses: actions/checkout@v4
+      # The app embeds the Rust core as WebAssembly, so it needs Rust and wasm-pack.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
       - uses: pnpm/action-setup@v4
         with:
           package_json_file: web/package.json
@@ -69,6 +80,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - run: pnpm build:wasm
       - run: pnpm lint
       - run: pnpm test --run
       - run: pnpm build

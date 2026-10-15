@@ -1,0 +1,46 @@
+{
+  "_comment": "Shared test cases for the poker formulas. Both web/src/math/formulas.ts (TypeScript) and crates/poker-core/src/math.rs (Rust) are tested against this file, so the two implementations can't drift apart. Arguments are in the order each function takes them; null means 'no answer' (e.g. implied odds with zero equity). Most cases are the worked examples from the plan's math reference.",
+  "potOdds": [
+    { "args": [150, 50], "expected": 0.25, "note": "pot 100, opponent bets 50" },
+    { "args": [150, 0], "expected": 0, "note": "nothing to call" }
+  ],
+  "equity": [
+    { "args": [0.52, 0.04, 2], "expected": 0.54, "note": "a heads-up tie counts half" },
+    { "args": [0.5, 0.03, 3], "expected": 0.51, "note": "a three-way tie counts a third" }
+  ],
+  "evCall": [
+    { "args": [0.3, 150, 50], "expected": 10, "note": "E = 30%, P = 150, C = 50" },
+    { "args": [0.25, 150, 50], "expected": 0, "note": "equity exactly at pot odds" }
+  ],
+  "evBet": [
+    { "args": [100, 75, 0.4, 0.3], "expected": 40, "note": "bet 75 into 100, folds 40%, 30% when called" },
+    { "args": [100, 75, 1, 0], "expected": 100, "note": "opponent always folds" }
+  ],
+  "bluffBreakEven": [{ "args": [100, 75], "expected": 0.428571, "note": "bet 75 into 100" }],
+  "mdf": [{ "args": [100, 75], "expected": 0.571429, "note": "facing 75 into 100" }],
+  "impliedOdds": [
+    { "args": [150, 50, 0.2], "expected": 50, "note": "P = 150, C = 50, E = 20%" },
+    { "args": [150, 50, 0], "expected": null, "note": "no equity: no amount of future winnings helps" },
+    { "args": [150, 50, 0.25], "expected": 0, "note": "already priced in" }
+  ],
+  "choose": [
+    { "args": [47, 2], "expected": 1081 },
+    { "args": [52, 2], "expected": 1326 },
+    { "args": [5, 0], "expected": 1 },
+    { "args": [2, 3], "expected": 0 }
+  ],
+  "outs": [
+    { "args": [9, 1], "expected": 0.195652, "note": "flush draw, turn to river (Rule of 2 says 18%)" },
+    { "args": [9, 2], "expected": 0.349676, "note": "flush draw, flop to river (Rule of 4 says 36%)" },
+    { "args": [15, 2], "expected": 0.541166, "note": "Rule of 4 says 60%: the shortcut drifts high" }
+  ],
+  "spr": [{ "args": [900, 100], "expected": 9 }],
+  "pairCombos": [
+    { "args": [4], "expected": 6, "note": "unblocked pocket pair" },
+    { "args": [3], "expected": 3, "note": "you hold one card of the rank" }
+  ],
+  "unpairedCombos": [
+    { "args": [4, 4], "expected": 16, "note": "unblocked, e.g. AK" },
+    { "args": [3, 3], "expected": 9, "note": "you hold the ace of spades on a king-high board" }
+  ]
+}
