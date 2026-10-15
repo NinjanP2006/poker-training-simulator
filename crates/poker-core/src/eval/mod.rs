@@ -48,7 +48,8 @@ impl Category {
 /// Each rank (0–12) fits in 4 bits. The category sits above all rank bits, so
 /// any pair beats any high card; within a category, the ranks break the tie in
 /// order, e.g. for two pair: high pair, then low pair, then kicker.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+/// `HandRank::default()` is zero, which is below every real hand.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
 pub struct HandRank(u32);
 
 impl HandRank {

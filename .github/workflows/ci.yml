@@ -20,6 +20,39 @@ jobs:
       - name: Slow exhaustive tests (release)
         run: cargo test --workspace --release -- --ignored
 
+  # Benchmarks the previous commit and this one back to back on the same
+  # machine (shared CI runners vary too much to compare against stored
+  # numbers), then fails if anything got more than 10% slower.
+  bench:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Benchmark the previous commit
+        id: base
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -n "$BASE" ] && git cat-file -e "$BASE:crates/poker-core/benches" 2>/dev/null; then
+            git worktree add "$RUNNER_TEMP/base" "$BASE"
+            cd "$RUNNER_TEMP/base"
+            cargo bench -p poker-core --benches -- --save-baseline base --warm-up-time 1 --measurement-time 3
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No earlier commit with benchmarks; nothing to compare against."
+          fi
+      - name: Benchmark this commit against it
+        if: steps.base.outputs.found == 'true'
+        run: cargo bench -p poker-core --benches -- --baseline-lenient base --warm-up-time 1 --measurement-time 3
+      - name: Fail on a slowdown over 10%
+        if: steps.base.outputs.found == 'true'
+        run: python3 scripts/bench_gate.py target/criterion 0.10
+
   web:
     runs-on: ubuntu-latest
     defaults:
