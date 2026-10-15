@@ -54,7 +54,8 @@ export type HandEvent =
   | { t: "blind"; seat: number; amount: number }
   | { t: "act"; seat: number; action: Action }
   | { t: "board"; cards: Card[] }
-  | { t: "award"; potIndex: number; seats: number[]; amount: number };
+  // One event per winner of each pot, so split pots and odd chips are explicit.
+  | { t: "award"; potIndex: number; seat: number; amount: number };
 
 /** Placeholder until the Rust game engine defines it (Phase 2). */
 export type HandState = unknown;
