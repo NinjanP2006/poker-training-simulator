@@ -210,6 +210,35 @@ h1 {
   color: var(--muted);
 }
 
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  font-size: 0.9rem;
+}
+
+.toolbar input[type="checkbox"] {
+  width: auto;
+}
+
+.style {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.card.back {
+  background: repeating-linear-gradient(45deg, #3b5bdb, #3b5bdb 4px, #4c6ef5 4px, #4c6ef5 8px);
+  border-color: #364fc7;
+}
+
+.opponent-ranges {
+  margin: 0 0 0.5rem;
+  padding-left: 1.2rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
 .analysis {
   margin-top: 1.25rem;
   padding-top: 1rem;

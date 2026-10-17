@@ -85,6 +85,7 @@ export type HandView = {
   street: Street;
   pot: number; // chips in the middle not yet awarded
   currentBet: number;
+  raisesThisStreet: number; // preflop: 0 = unopened, 1 = opened, 2 = 3-bet, ...
   toAct: number | null;
   legal: LegalActions | null;
   complete: boolean;
@@ -158,6 +159,8 @@ export type AnalysisOptions = {
   betFractions?: number[]; // sizes as fractions of the pot after calling (default 1/3, 1/2, 3/4, 1)
   foldFrequency?: number; // override the opponent fold model
   extraActions?: Action[]; // also evaluate these, e.g. the size actually chosen
+  /** Per opponent: [pot odds offered, fold frequency] points from the opponent model. */
+  foldCurves?: { seat: number; points: [number, number][] }[];
 };
 
 /** An analysis graded after the player acted (hand review, Phase 8). */

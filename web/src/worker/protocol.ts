@@ -50,6 +50,8 @@ export interface CoreApi {
   equity(request: EquityRequest): EquityResult;
   /** Every math-panel number for hero's current decision. Throws if it isn't hero's turn. */
   analyze(request: AnalysisRequest): DecisionAnalysis;
+  /** Strength (0–1) of all 1,326 combos on a 3–5 card board; 0 for blocked combos. */
+  comboStrengths(board: Card[], dead?: Card[]): Range;
   parseRange(notation: string): Range;
   rangeToNotation(range: Range): string;
   /** 7-card evaluations per second inside the worker. */

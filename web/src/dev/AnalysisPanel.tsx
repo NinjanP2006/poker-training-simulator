@@ -1,9 +1,23 @@
 import { useEffect, useRef, useState } from "react";
+import { foldCurve } from "../bots/foldCurve";
+import type { Model, StrengthCache } from "../bots/model";
+import { comboCount, trackRanges } from "../bots/tracker";
 import { cardToSymbol, isRed } from "../core/cards";
 import type { Action, ActionEv, Card, DecisionAnalysis, HandView, TableConfig } from "../core/types";
 import { getCore } from "../worker/core";
 
-type Props = { config: TableConfig; seed: string; view: HandView };
+type Props = {
+  config: TableConfig;
+  seed: string;
+  view: HandView;
+  hero: number;
+  /** The model each opponent's range is tracked with. */
+  modelFor: (seat: number) => Model;
+  modelLabel: (seat: number) => string;
+  strengths: StrengthCache;
+};
+
+type OpponentRange = { seat: number; combos: number; label: string };
 
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
 
@@ -20,62 +34,83 @@ function actionLabel(a: Action): string {
   }
 }
 
-/** The math panel's numbers for whoever is to act, against an editable opponent range. */
-export function AnalysisPanel({ config, seed, view }: Props) {
-  const [notation, setNotation] = useState("22+, A2s+, K9s+, ATo+, KJo+, QJs, JTs");
+/**
+ * The math panel for hero's decision. Opponent ranges are narrowed from their
+ * actions this hand, and fold frequencies come from the same opponent model.
+ */
+export function AnalysisPanel({ config, seed, view, hero, modelFor, modelLabel, strengths }: Props) {
   const [analysis, setAnalysis] = useState<DecisionAnalysis | null>(null);
+  const [opponents, setOpponents] = useState<OpponentRange[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [ms, setMs] = useState(0);
   const latest = useRef(0);
-  const seat = view.legal?.seat ?? null;
 
   useEffect(() => {
-    if (seat === null) return;
+    if (view.legal?.seat !== hero) return;
     const request = ++latest.current;
-    const timer = setTimeout(async () => {
+    (async () => {
       try {
         const core = getCore();
-        const range = await core.parseRange(notation);
-        const ranges = view.players
-          .map((p, s) => ({ p, s }))
-          .filter(({ p, s }) => s !== seat && !p.folded)
-          .map(({ s }) => ({ seat: s, range }));
         const start = performance.now();
-        const result = await core.analyze({ config, seed, events: view.events, heroSeat: seat, ranges });
+        const ranges = await trackRanges(core, config, seed, view.events, modelFor, strengths, { viewer: hero });
+        const live = view.players.map((p, s) => ({ p, s })).filter(({ p, s }) => s !== hero && !p.folded).map(({ s }) => s);
+        const heroCards = view.players[hero].hole ?? [];
+        const boardStrengths = view.board.length >= 3 ? await strengths.get(view.board) : null;
+        const foldCurves = live.map((seat) => ({
+          seat,
+          points: foldCurve(modelFor(seat), ranges[seat], seat, view, config, boardStrengths, [...heroCards, ...view.board]),
+        }));
+        const result = await core.analyze({
+          config,
+          seed,
+          events: view.events,
+          heroSeat: hero,
+          ranges: live.map((seat) => ({ seat, range: ranges[seat] })),
+          options: { foldCurves },
+        });
         if (request === latest.current) {
           setAnalysis(result);
+          setOpponents(live.map((seat) => ({ seat, combos: comboCount(ranges[seat]), label: modelLabel(seat) })));
           setMs(performance.now() - start);
           setError(null);
         }
       } catch (e) {
         if (request === latest.current) setError((e as Error).message);
       }
-    }, 120);
-    return () => clearTimeout(timer);
-  }, [config, seed, view, seat, notation]);
+    })();
+  }, [config, seed, view, hero, modelFor, modelLabel, strengths]);
 
-  if (seat === null) return null;
   const best = analysis?.evByAction.reduce((a, b) => (b.ev > a.ev ? b : a));
   const bb = config.bigBlind;
 
   return (
     <div className="analysis" aria-live="polite">
-      <h3>Math panel for seat {seat}</h3>
-      <label className="range-input">
-        Opponents' range
-        <input value={notation} onChange={(e) => setNotation(e.target.value)} />
-      </label>
+      <h3>Math panel</h3>
       {error && <p className="error">{error}</p>}
-      {analysis && analysis.hero === seat && (
+      {analysis && (
         <>
+          <ul className="opponent-ranges">
+            {opponents.map((o) => (
+              <li key={o.seat}>
+                Seat {o.seat}: about {Math.round(o.combos)} combos ({pct(o.combos / 1326)} of hands) · {o.label}
+              </li>
+            ))}
+          </ul>
+
           <dl className="metrics">
-            <Metric label="Equity" value={pct(analysis.equity.equity)}
-              note={analysis.equity.stdErr === null ? "exact" : `± ${pct(1.96 * analysis.equity.stdErr)}`} />
+            <Metric
+              label="Equity"
+              value={pct(analysis.equity.equity)}
+              note={analysis.equity.stdErr === null ? "exact" : `± ${pct(1.96 * analysis.equity.stdErr)}`}
+            />
             <Metric label="Pot / to call" value={`${analysis.pot} / ${analysis.toCall}`} />
             <Metric label="Pot odds (equity needed)" value={analysis.toCall ? pct(analysis.potOdds) : "—"} />
             <Metric label="MDF" value={analysis.mdf === null ? "—" : pct(analysis.mdf)} />
             <Metric label="SPR" value={analysis.spr.toFixed(1)} note={`eff. stack ${analysis.effectiveStack}`} />
-            <Metric label="Implied odds needed" value={analysis.impliedOddsNeeded === null ? "—" : `${Math.round(analysis.impliedOddsNeeded)} chips`} />
+            <Metric
+              label="Implied odds needed"
+              value={analysis.impliedOddsNeeded === null ? "—" : `${Math.round(analysis.impliedOddsNeeded)} chips`}
+            />
           </dl>
 
           {analysis.outs && <OutsView outs={analysis.outs} />}
@@ -94,7 +129,10 @@ export function AnalysisPanel({ config, seed, view }: Props) {
             <tbody>
               {analysis.evByAction.map((x: ActionEv, i) => (
                 <tr key={i} className={x === best ? "best" : ""}>
-                  <td>{actionLabel(x.action)}{x === best && " ★"}</td>
+                  <td>
+                    {actionLabel(x.action)}
+                    {x === best && " ★"}
+                  </td>
                   <td>{x.ev.toFixed(1)}</td>
                   <td>{(x.ev / bb).toFixed(2)}</td>
                   <td>{x.foldFrequency === null ? "" : pct(x.foldFrequency)}</td>
@@ -105,10 +143,9 @@ export function AnalysisPanel({ config, seed, view }: Props) {
             </tbody>
           </table>
           <p className="hint">
-            EVs are estimates: this street only, then showdown. Opponents are assumed to fold 85% as often as a bluff needs
-            to break even (a placeholder until bot profiles), and to call with the strongest part of their range.
-            Computed in {ms.toFixed(1)} ms · {analysis.opponents} opponent{analysis.opponents === 1 ? "" : "s"} ·{" "}
-            {analysis.equity.method === "exact" ? "exact" : "Monte Carlo"}.
+            EVs are estimates: this street only, then showdown. Ranges are narrowed from each opponent's actions this hand, and
+            fold rates come from the same model. Computed in {ms.toFixed(0)} ms ·{" "}
+            {analysis.equity.method === "exact" ? "exact equity" : "Monte Carlo equity"}.
           </p>
         </>
       )}
@@ -140,12 +177,8 @@ function OutsView({ outs }: { outs: NonNullable<DecisionAnalysis["outs"]> }) {
         {pct(outs.ruleOfThumb)}
         {drift > 0.02 && <span className="note"> (the shortcut is off by {pct(drift)} here)</span>}
       </div>
-      <div className="out-cards">
-        Clean: {outs.clean.length ? outs.clean.map((c) => <MiniCard key={c} card={c} />) : "none"}
-      </div>
-      <div className="out-cards">
-        Dirty: {outs.dirty.length ? outs.dirty.map((c) => <MiniCard key={c} card={c} />) : "none"}
-      </div>
+      <div className="out-cards">Clean: {outs.clean.length ? outs.clean.map((c) => <MiniCard key={c} card={c} />) : "none"}</div>
+      <div className="out-cards">Dirty: {outs.dirty.length ? outs.dirty.map((c) => <MiniCard key={c} card={c} />) : "none"}</div>
     </div>
   );
 }

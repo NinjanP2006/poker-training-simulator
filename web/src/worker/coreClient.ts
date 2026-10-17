@@ -47,6 +47,7 @@ export function createCore(): Core {
     evaluate: (...a) => call("evaluate", ...a),
     equity: (...a) => call("equity", ...a),
     analyze: (...a) => call("analyze", ...a),
+    comboStrengths: (...a) => call("comboStrengths", ...a),
     parseRange: (...a) => call("parseRange", ...a),
     rangeToNotation: (...a) => call("rangeToNotation", ...a),
     evalThroughput: (...a) => call("evalThroughput", ...a),
