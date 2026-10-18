@@ -159,6 +159,15 @@ pub fn equity(
     to_js(&EquityResultDto::from(result))
 }
 
+/// Hand strength (0–1) for all 1,326 combos on a 3–5 card board: the share of
+/// other hands each beats, averaged over the next card. 0 for blocked combos.
+#[wasm_bindgen(js_name = comboStrengths)]
+pub fn combo_strengths(board: &[u8], dead: &[u8]) -> Result<Vec<f32>, JsError> {
+    let board = dto::cards(board).map_err(js_err)?;
+    let dead = dto::mask(dead).map_err(js_err)?;
+    poker_core::strength::combo_strengths(&board, dead).map_err(|e| js_err(e.to_string()))
+}
+
 /// Parses range notation like "22+, A2s+, 0.5(KQo)" into 1,326 weights.
 #[wasm_bindgen(js_name = parseRange)]
 pub fn parse_range(notation: &str) -> Result<Vec<f32>, JsError> {

@@ -77,6 +77,8 @@ pub struct HandView {
     /// Chips in the middle not yet awarded.
     pub pot: u64,
     pub current_bet: u64,
+    /// Times the bet was raised this street (preflop: 1 = opened, 2 = 3-bet).
+    pub raises_this_street: u32,
     pub to_act: Option<usize>,
     pub legal: Option<LegalView>,
     pub complete: bool,
@@ -113,6 +115,7 @@ pub struct EquityOptionsDto {
     pub exact_limit: Option<u64>,
     pub max_samples: Option<u64>,
     pub seed: Option<u64>,
+    pub per_combo_budget: Option<u64>,
 }
 
 #[derive(Serialize, Debug, Clone, Copy, PartialEq)]
@@ -135,6 +138,14 @@ pub struct AnalysisOptionsDto {
     pub bet_fractions: Option<Vec<f64>>,
     pub fold_frequency: Option<f64>,
     pub extra_actions: Option<Vec<ActionDto>>,
+    pub fold_curves: Option<Vec<FoldCurveDto>>,
+}
+
+/// How often one opponent folds, as [pot odds offered, fold frequency] points.
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+pub struct FoldCurveDto {
+    pub seat: usize,
+    pub points: Vec<[f64; 2]>,
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq)]
@@ -199,6 +210,17 @@ impl From<AnalysisOptionsDto> for AnalysisOptions {
                 .extra_actions
                 .map(|a| a.into_iter().map(Action::from).collect())
                 .unwrap_or_default(),
+            fold_curves: o
+                .fold_curves
+                .unwrap_or_default()
+                .into_iter()
+                .map(|c| {
+                    let mut points: Vec<(f64, f64)> =
+                        c.points.iter().map(|&[x, y]| (x, y)).collect();
+                    points.sort_by(|a, b| a.0.total_cmp(&b.0));
+                    (c.seat, points)
+                })
+                .collect(),
         }
     }
 }
@@ -398,6 +420,7 @@ impl From<EquityOptionsDto> for EquityOptions {
             exact_limit: o.exact_limit.unwrap_or(d.exact_limit),
             max_samples: o.max_samples.unwrap_or(d.max_samples),
             seed: o.seed.unwrap_or(d.seed),
+            per_combo_budget: o.per_combo_budget.unwrap_or(d.per_combo_budget),
         }
     }
 }
@@ -462,6 +485,7 @@ pub fn view(hand: &HandState) -> HandView {
         street: street_name(hand.street()),
         pot: hand.pot(),
         current_bet: hand.current_bet(),
+        raises_this_street: hand.raises_this_street(),
         to_act: hand.to_act(),
         legal: hand.legal_actions().map(LegalView::from),
         complete: hand.is_complete(),

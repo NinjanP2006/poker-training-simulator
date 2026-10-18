@@ -108,6 +108,9 @@ pub struct HandState {
     current_bet: u64,
     /// Size of the last full bet or raise this street; a raise must add at least this much.
     last_full_raise: u64,
+    /// Times a player increased the bet this street (blinds don't count): 1 after
+    /// an open or a flop bet, 2 after a 3-bet or a raise of that bet, and so on.
+    raises_this_street: u32,
     /// Where to start looking clockwise for the next player to act.
     search_from: usize,
     /// Chips paid out by award events so far.
@@ -211,6 +214,12 @@ impl HandState {
         self.current_bet
     }
 
+    /// Times a player increased the bet this street. Preflop, 0 means nobody
+    /// has raised the blinds yet; 1 means one open raise; 2 a 3-bet.
+    pub fn raises_this_street(&self) -> u32 {
+        self.raises_this_street
+    }
+
     /// True once every chip in the pot has been awarded.
     pub fn is_complete(&self) -> bool {
         self.awarded > 0 && self.awarded == self.total_contributed()
@@ -276,6 +285,7 @@ impl HandState {
         let mut hand = HandState {
             current_bet: config.big_blind,
             last_full_raise: config.big_blind,
+            raises_this_street: 0,
             search_from: 0,
             config,
             deck,
@@ -508,6 +518,7 @@ impl HandState {
                     self.last_full_raise = increase;
                 }
                 self.current_bet = to;
+                self.raises_this_street += 1;
             }
         }
 
@@ -527,6 +538,7 @@ impl HandState {
         }
         self.current_bet = 0;
         self.last_full_raise = self.config.big_blind;
+        self.raises_this_street = 0;
         self.search_from = (self.config.button + 1) % self.seats();
     }
 }
@@ -658,6 +670,23 @@ mod tests {
         assert!(hand.apply_action(Action::Raise { to: 9 }).is_err());
         act(&mut hand, Action::Raise { to: 10 });
         assert_eq!(hand.legal_actions().unwrap().min_raise_to, Some(14));
+    }
+
+    #[test]
+    fn counts_raises_per_street() {
+        let mut hand = HandState::new(config(&[1000, 1000, 1000], 0), 1).unwrap();
+        assert_eq!(hand.raises_this_street(), 0); // blinds don't count
+        act(&mut hand, Action::Call); // a limp doesn't either
+        act(&mut hand, Action::Raise { to: 8 });
+        assert_eq!(hand.raises_this_street(), 1);
+        act(&mut hand, Action::Raise { to: 24 });
+        assert_eq!(hand.raises_this_street(), 2);
+        act(&mut hand, Action::Call);
+        act(&mut hand, Action::Call);
+        assert_eq!(hand.street(), Street::Flop);
+        assert_eq!(hand.raises_this_street(), 0);
+        act(&mut hand, Action::Bet { amount: 20 });
+        assert_eq!(hand.raises_this_street(), 1);
     }
 
     #[test]

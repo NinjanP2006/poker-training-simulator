@@ -129,6 +129,7 @@ fn monte_carlo_95_percent_intervals_cover_the_reference() {
             max_samples: 20_000,
             budget_ms: f64::INFINITY,
             seed: i as u64,
+            ..EquityOptions::default()
         };
         let r = equity(s.hero, &s.villain, &s.board, s.dead, &opts).unwrap();
         let se = r.std_err.unwrap();

@@ -8,16 +8,18 @@
 //! treats the current street in isolation and assumes the hand then goes to
 //! showdown with no more betting. Two inputs are models, not facts:
 //!
-//! - **Fold frequency.** Until bot profiles exist (Phase 6), opponents are
-//!   assumed to fold [`POPULATION_FOLD_FACTOR`] times as often as a pure
-//!   bluff of that size needs to break even, i.e. they call a bit too much.
-//!   Callers can override it.
+//! - **Fold frequency.** Normally a fold curve per opponent, computed by the
+//!   app from the opponent model and their current range (how often they
+//!   fold to each price). Without one, opponents are assumed to fold
+//!   [`POPULATION_FOLD_FACTOR`] times as often as a pure bluff of that size
+//!   needs to break even, i.e. they call a bit too much.
 //! - **Who calls.** An opponent who continues does so with the strongest part
 //!   of their range: the combos hero has the least equity against.
 //!
-//! Multiway pots use Monte Carlo equity against all ranges, assume everyone
-//! continues together if anyone does, approximate the callers' strength from
-//! each opponent's heads-up calling range, and skip outs.
+//! Multiway pots use Monte Carlo equity against all ranges for checking and
+//! calling. For bets, everyone folding wins the pot; otherwise one opponent is
+//! assumed to call: the one whose calling range hero does worst against.
+//! Outs are skipped multiway.
 
 use std::fmt;
 
@@ -40,6 +42,11 @@ pub const POPULATION_FOLD_FACTOR: f64 = 0.85;
 /// beats hero after it comes.
 pub const DIRTY_OUT_SHARE: f64 = 0.2;
 
+/// Multiway: per-opponent breakdowns enumerate exactly only up to this many
+/// evaluations, and otherwise sample with this budget.
+const MULTIWAY_EXACT_LIMIT: u64 = 250_000;
+const MULTIWAY_PER_COMBO_BUDGET: u64 = 120_000;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct AnalysisOptions {
     pub equity: EquityOptions,
@@ -49,6 +56,10 @@ pub struct AnalysisOptions {
     pub fold_frequency: Option<f64>,
     /// Also evaluate these actions if legal, e.g. the size the player actually chose.
     pub extra_actions: Vec<Action>,
+    /// Per opponent seat: how often they fold to a bet, as points
+    /// (pot odds offered, fold frequency), sorted by pot odds. Comes from the
+    /// opponent model and their current range; replaces the placeholder.
+    pub fold_curves: Vec<(usize, Vec<(f64, f64)>)>,
 }
 
 impl Default for AnalysisOptions {
@@ -58,6 +69,7 @@ impl Default for AnalysisOptions {
             bet_fractions: DEFAULT_BET_FRACTIONS.to_vec(),
             fold_frequency: None,
             extra_actions: Vec::new(),
+            fold_curves: Vec::new(),
         }
     }
 }
@@ -204,10 +216,20 @@ pub fn analyze(
 
     let none = CardMask::empty();
     // Hero's equity against each opponent's combos, heads-up. Used to work out
-    // how strong the hands that call a bet are.
+    // how strong the hands that call a bet are. Multiway, these only feed a
+    // rough scaling factor, so they get a smaller budget per opponent.
+    let per_opponent_opts = if villain_ranges.len() > 1 {
+        EquityOptions {
+            exact_limit: opts.equity.exact_limit.min(MULTIWAY_EXACT_LIMIT),
+            per_combo_budget: opts.equity.per_combo_budget.min(MULTIWAY_PER_COMBO_BUDGET),
+            ..opts.equity
+        }
+    } else {
+        opts.equity
+    };
     let per_opponent: Vec<equity::EquityByCombo> = villain_ranges
         .iter()
-        .map(|r| equity::equity_by_combo(hole, r, board, none, &opts.equity))
+        .map(|r| equity::equity_by_combo(hole, r, board, none, &per_opponent_opts))
         .collect::<Result<_, _>>()?;
     let equity = if let [heads_up] = per_opponent.as_slice() {
         heads_up.result
@@ -228,11 +250,12 @@ pub fn analyze(
     let ctx = EvContext {
         hand,
         hero,
-        opponents: opponents.iter().map(|&s| &players[s]).collect(),
+        opponents: opponents.iter().map(|&s| (s, &players[s])).collect(),
         pot: pot as f64,
         equity: e,
         per_opponent: &per_opponent,
         fold_override: opts.fold_frequency,
+        fold_curves: &opts.fold_curves,
     };
     let actions = candidate_actions(hand, &legal, opts)
         .into_iter()
@@ -318,11 +341,13 @@ fn candidate_actions(
 struct EvContext<'a> {
     hand: &'a HandState,
     hero: usize,
-    opponents: Vec<&'a PlayerState>,
+    /// (seat, state) of each opponent still in the pot.
+    opponents: Vec<(usize, &'a PlayerState)>,
     pot: f64,
     equity: f64,
     per_opponent: &'a [equity::EquityByCombo],
     fold_override: Option<f64>,
+    fold_curves: &'a [(usize, Vec<(f64, f64)>)],
 }
 
 impl EvContext<'_> {
@@ -330,25 +355,34 @@ impl EvContext<'_> {
         &self.hand.players()[self.hero]
     }
 
-    /// Hero's equity against the hands that continue, when each opponent folds
-    /// `fold` of their range.
+    /// Who calls a bet, and hero's equity against them, when opponent `i`
+    /// folds `folds[i]` of their range.
     ///
-    /// Heads-up this is exact for the model. Multiway, the heads-up drop
-    /// against each opponent's calling range scales the multiway equity:
-    /// E_called ≈ E × Π (E_called,i / E_i). A rough approximation, but it keeps
-    /// the key effect that big bets only get called by strong hands.
-    fn equity_when_called(&self, fold: f64) -> f64 {
-        if let [heads_up] = self.per_opponent {
-            return equity_when_called(&heads_up.combos, fold);
+    /// Heads-up this is exact for the model. Multiway, a called bet is assumed
+    /// to face one caller: the opponent whose calling range hero does worst
+    /// against. (Most called bets get one caller; assuming everyone calls with
+    /// their strongest hands made hero's equity look absurdly low.)
+    fn toughest_caller(&self, folds: &[f64]) -> (usize, f64) {
+        self.per_opponent
+            .iter()
+            .zip(folds)
+            .map(|(opponent, &fold)| equity_when_called(&opponent.combos, fold))
+            .enumerate()
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .expect("there is at least one opponent")
+    }
+
+    /// How often this opponent folds to a bet that offers them `pot_odds`:
+    /// the explicit override if set, else their fold curve, else the
+    /// population placeholder.
+    fn fold_probability(&self, seat: usize, pot_odds: f64, break_even: f64) -> f64 {
+        if let Some(f) = self.fold_override {
+            return f.clamp(0.0, 1.0);
         }
-        let mut scale = 1.0;
-        for opponent in self.per_opponent {
-            let full = opponent.result.equity;
-            if full > 0.0 {
-                scale *= equity_when_called(&opponent.combos, fold) / full;
-            }
+        match self.fold_curves.iter().find(|(s, _)| *s == seat) {
+            Some((_, curve)) => interpolate(curve, pot_odds).clamp(0.0, 1.0),
+            None => (POPULATION_FOLD_FACTOR * break_even).clamp(0.0, 1.0),
         }
-        (self.equity * scale).clamp(0.0, 1.0)
     }
 
     fn ev(&self, action: Action) -> ActionEv {
@@ -377,7 +411,7 @@ impl EvContext<'_> {
         let returned: u64 = self
             .opponents
             .iter()
-            .map(|o| o.street_bet.saturating_sub(hero_total))
+            .map(|(_, o)| o.street_bet.saturating_sub(hero_total))
             .sum();
         let pot = self.pot - returned as f64;
         ActionEv::passive(action, math::ev_call(self.equity, pot, call as f64))
@@ -388,37 +422,36 @@ impl EvContext<'_> {
         let risk = to - me.street_bet;
         let break_even = math::bluff_break_even(self.pot, risk as f64);
 
-        // Chance each opponent folds, then the chance they all do. A player
-        // who is already all-in can't fold.
-        let per_opponent = self
-            .fold_override
-            .unwrap_or(POPULATION_FOLD_FACTOR * break_even)
-            .clamp(0.0, 1.0);
-        let all_fold = if self.opponents.iter().any(|o| o.stack == 0) {
-            0.0
-        } else {
-            per_opponent.powi(self.opponents.len() as i32)
-        };
-
-        // If called, each caller matches as much of the bet as their stack allows;
-        // any of hero's bet that nobody can match comes back.
+        // What each opponent would put in to call (as much as their stack allows).
         let calls: Vec<u64> = self
             .opponents
             .iter()
-            .map(|o| to.saturating_sub(o.street_bet).min(o.stack))
+            .map(|(_, o)| to.saturating_sub(o.street_bet).min(o.stack))
             .collect();
-        let highest_match = self
+
+        // Chance each opponent folds (given the price this bet offers them),
+        // then the chance they all do. A player who is all-in can't fold.
+        let folds: Vec<f64> = self
             .opponents
             .iter()
             .zip(&calls)
-            .map(|(o, c)| o.street_bet + c)
-            .max()
-            .unwrap_or(to);
-        let hero_in = to.min(highest_match) - me.street_bet;
-        let called_chips: u64 = calls.iter().sum();
+            .map(|((seat, _), &call)| {
+                let pot_odds = call as f64 / (self.pot + risk as f64 + call as f64);
+                self.fold_probability(*seat, pot_odds, break_even)
+            })
+            .collect();
+        let all_fold = if self.opponents.iter().any(|(_, o)| o.stack == 0) {
+            0.0
+        } else {
+            folds.iter().product()
+        };
 
-        let equity_called = self.equity_when_called(per_opponent);
-        let pot_if_called = self.pot + hero_in as f64 + called_chips as f64;
+        // If called: the caller matches as much of the bet as they can, and any
+        // of hero's bet they can't match comes back.
+        let (caller, equity_called) = self.toughest_caller(&folds);
+        let caller_total = self.opponents[caller].1.street_bet + calls[caller];
+        let hero_in = to.min(caller_total) - me.street_bet;
+        let pot_if_called = self.pot + hero_in as f64 + calls[caller] as f64;
         let ev = all_fold * self.pot
             + (1.0 - all_fold) * (equity_called * pot_if_called - hero_in as f64);
 
@@ -428,6 +461,26 @@ impl EvContext<'_> {
             fold_frequency: Some(all_fold),
             break_even_fold: Some(break_even),
             equity_when_called: Some(equity_called),
+        }
+    }
+}
+
+/// Linear interpolation through `points` (sorted by x), flat beyond the ends.
+fn interpolate(points: &[(f64, f64)], x: f64) -> f64 {
+    match points {
+        [] => 0.0,
+        [(_, y)] => *y,
+        _ => {
+            let (first, last) = (points[0], points[points.len() - 1]);
+            if x <= first.0 {
+                return first.1;
+            }
+            if x >= last.0 {
+                return last.1;
+            }
+            let i = points.partition_point(|p| p.0 <= x);
+            let ((x0, y0), (x1, y1)) = (points[i - 1], points[i]);
+            y0 + (y1 - y0) * (x - x0) / (x1 - x0)
         }
     }
 }
@@ -672,6 +725,44 @@ mod tests {
                 math::bluff_break_even(4.0, amount as f64)
             ));
         }
+    }
+
+    #[test]
+    fn fold_curves_set_each_bets_fold_frequency_by_the_price_it_offers() {
+        // Hero (seat 1) bets into a limped pot of 4; seat 0 folds 60% to cheap
+        // prices and 20% to expensive ones.
+        let mut hand = heads_up("Qs Qd Ah Kh Qh 7h 2c");
+        act(&mut hand, Action::Call);
+        act(&mut hand, Action::Check);
+        let curve = vec![(0.2, 0.2), (0.4, 0.6)];
+        let opts = AnalysisOptions {
+            fold_curves: vec![(0, curve.clone())],
+            ..AnalysisOptions::default()
+        };
+        let a = analyze(&hand, 1, &[(0, range("AhKh"))], &opts).unwrap();
+        for x in a
+            .actions
+            .iter()
+            .filter(|x| matches!(x.action, Action::Bet { .. }))
+        {
+            let Action::Bet { amount } = x.action else {
+                unreachable!()
+            };
+            let b = amount as f64;
+            let pot_odds = b / (4.0 + 2.0 * b); // calling b into a pot of 4 + b
+            let expected = interpolate(&curve, pot_odds);
+            assert!(close(x.fold_frequency.unwrap(), expected), "bet {amount}");
+            assert!(close(x.ev, math::ev_bet(4.0, b, expected, a.equity.equity)));
+        }
+    }
+
+    #[test]
+    fn interpolation_is_linear_and_flat_at_the_ends() {
+        let pts = [(0.2, 0.2), (0.4, 0.6)];
+        assert!(close(interpolate(&pts, 0.3), 0.4));
+        assert!(close(interpolate(&pts, 0.1), 0.2));
+        assert!(close(interpolate(&pts, 0.9), 0.6));
+        assert!(close(interpolate(&[(0.5, 0.3)], 0.1), 0.3));
     }
 
     #[test]

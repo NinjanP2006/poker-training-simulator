@@ -39,6 +39,9 @@ pub struct EquityOptions {
     pub max_samples: u64,
     /// Seed for Monte Carlo sampling, so a given request is reproducible.
     pub seed: u64,
+    /// [`equity_by_combo`] only: total evaluations to spend sampling each combo
+    /// separately when the spot is too big to enumerate.
+    pub per_combo_budget: u64,
 }
 
 impl Default for EquityOptions {
@@ -49,6 +52,7 @@ impl Default for EquityOptions {
             exact_limit: 2_000_000,
             max_samples: u64::MAX,
             seed: 0,
+            per_combo_budget: 500_000,
         }
     }
 }
@@ -170,7 +174,7 @@ pub fn equity_by_combo(
     if spot.exact_work(live.len()) <= opts.exact_limit {
         return Ok(spot.enumerate(&live));
     }
-    let combos = spot.sample_each_combo(&live, opts.seed);
+    let combos = spot.sample_each_combo(&live, opts.seed, opts.per_combo_budget);
     let result = spot.monte_carlo(&[live], opts)?;
     Ok(EquityByCombo { result, combos })
 }
@@ -293,8 +297,8 @@ impl Spot {
 
     /// A separate Monte Carlo sample for each combo, sized so the total stays
     /// around half a million evaluations.
-    fn sample_each_combo(&self, live: &[LiveCombo], seed: u64) -> Vec<ComboEquity> {
-        let samples = (500_000 / live.len() as u64).clamp(50, 1_000);
+    fn sample_each_combo(&self, live: &[LiveCombo], seed: u64, budget: u64) -> Vec<ComboEquity> {
+        let samples = (budget / 2 / live.len() as u64).clamp(20, 1_000); // two evaluations per sample
         let mut rng = ChaCha8Rng::seed_from_u64(seed ^ 0x9E37_79B9_7F4A_7C15);
         live.iter()
             .map(|c| {
@@ -537,7 +541,7 @@ struct CacheKey {
     board: u64,
     dead: u64,
     range: u64,
-    options: [u64; 5],
+    options: [u64; 6],
 }
 
 impl EquityCache {
@@ -571,6 +575,7 @@ impl EquityCache {
                 opts.exact_limit,
                 opts.max_samples,
                 opts.seed,
+                opts.per_combo_budget,
             ],
         };
         if let Some(&result) = self.results.get(&key) {
@@ -758,6 +763,7 @@ mod tests {
             max_samples: 200_000,
             budget_ms: f64::INFINITY,
             seed: 7,
+            ..EquityOptions::default()
         };
         let mc = equity(hero, &villain, &board, CardMask::empty(), &opts).unwrap();
         assert_eq!(mc.method, Method::MonteCarlo);
@@ -778,6 +784,7 @@ mod tests {
             max_std_err: 0.0,
             budget_ms: f64::INFINITY,
             seed: 3,
+            ..EquityOptions::default()
         };
         let run = || equity(hand("As Kd"), &range("TT+"), &[], CardMask::empty(), &opts).unwrap();
         assert_eq!(run(), run());

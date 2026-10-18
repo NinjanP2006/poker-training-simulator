@@ -6,6 +6,7 @@ pub mod eval;
 pub mod mask;
 pub mod math;
 pub mod range;
+pub mod strength;
 
 pub use card::Card;
 pub use eval::{Category, HandRank};
