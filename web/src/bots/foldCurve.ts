@@ -33,6 +33,7 @@ export function foldCurve(
             spot: view.raisesThisStreet >= 1 ? "vs3bet" : "vsRaise",
             position: positionOf(seat, config),
             headsUp: config.seats.length === 2,
+            potOdds,
           }
         : { street: "postflop", facingBet: true, potOdds };
     let folds = 0;

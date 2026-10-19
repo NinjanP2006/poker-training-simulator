@@ -1,8 +1,11 @@
 // The game store driving real hands through the compiled core (no worker,
 // no bot delay).
 
+import "fake-indexeddb/auto"; // an in-memory IndexedDB for Node
 import { describe, expect, it } from "vitest";
 import { COMBOS } from "../core/combos";
+import { TrainerDb } from "../storage/db";
+import { createRepository } from "../storage/repo";
 import { wasmCore } from "../test/wasmCore";
 import { HERO, PRESETS } from "./session";
 import { createGameStore, type GameStore } from "./store";
@@ -97,6 +100,68 @@ describe("game store", () => {
     expect(after.equity.equity).not.toBe(before);
     expect(after.equity.liveCombos).toBeLessThanOrEqual(6);
     expect(aces.length).toBe(COMBOS);
+  }, 60_000);
+
+  it("saves each finished hand, and a saved hand replays exactly as it was played", async () => {
+    const repo = createRepository(new TrainerDb(`test-${crypto.randomUUID()}`));
+    const store = createGameStore({ core: wasmCore(), repo, botDelayMs: 0 });
+    await store.getState().startSession(PRESETS[0].settings);
+    expect(store.getState().sessionId).not.toBeNull();
+
+    for (let n = 0; n < 3; n++) {
+      await playPassively(store);
+      await waitUntil(() => store.getState().savedHands === n + 1, "the hand to be saved");
+      const live = store.getState().hand!;
+      const liveDecisions = store.getState().decisions;
+      const [saved] = await repo.listHands(1);
+
+      expect(saved.number).toBe(live.number);
+      expect(saved.events).toEqual(live.view.events);
+      expect(saved.analyses.map((a) => a.chosen)).toEqual(liveDecisions.map((d) => d.chosen));
+      expect(saved.analyses.map((a) => a.eventIndex)).toEqual(liveDecisions.map((d) => d.eventIndex));
+      expect(saved.netBb).toBe((live.view.players[HERO].stack - live.config.seats[HERO].stack) / 2);
+
+      // Rebuilding from the saved seed and events gives the identical final state.
+      const replayed = await wasmCore().viewHand(saved.config, saved.seed, saved.events);
+      expect(replayed).toEqual(live.view);
+
+      await store.getState().dealNext();
+    }
+    const decisionRows = await repo.listDecisions();
+    const savedAnalyses = (await repo.listHands()).reduce((n, h) => n + h.analyses.length, 0);
+    expect(decisionRows).toHaveLength(savedAnalyses);
+  }, 60_000);
+
+  it("saves hands from every session, not just the first", async () => {
+    // Regression: hand ids restarted with each session, so the second
+    // session's hands looked already saved and were dropped.
+    const repo = createRepository(new TrainerDb(`test-${crypto.randomUUID()}`));
+    const store = createGameStore({ core: wasmCore(), repo, botDelayMs: 0 });
+    for (let session = 0; session < 2; session++) {
+      await store.getState().startSession(PRESETS[1].settings);
+      for (let n = 0; n < 2; n++) {
+        await playPassively(store);
+        await waitUntil(() => store.getState().savedHands === session * 2 + n + 1, "the hand to be saved");
+        if (n === 0) await store.getState().dealNext();
+      }
+      store.getState().leaveTable();
+    }
+    expect(await repo.listHands()).toHaveLength(4);
+    expect([...(await repo.handCounts()).values()]).toEqual([2, 2]);
+  }, 60_000);
+
+  it("keeps playing if saving fails", async () => {
+    const broken = createRepository(new TrainerDb(`test-${crypto.randomUUID()}`));
+    broken.saveHand = async () => {
+      throw new Error("disk full");
+    };
+    const store = createGameStore({ core: wasmCore(), repo: broken, botDelayMs: 0 });
+    await store.getState().startSession(PRESETS[1].settings);
+    await playPassively(store);
+    await waitUntil(() => store.getState().storageError !== null, "the storage error");
+    expect(store.getState().storageError).toContain("disk full");
+    await store.getState().dealNext();
+    expect(store.getState().hand!.number).toBe(2);
   }, 60_000);
 
   it("goes back to setup when leaving the table", async () => {

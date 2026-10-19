@@ -35,7 +35,7 @@ const allSituations = (): Situation[] => {
   const positions: Position[] = ["UTG", "HJ", "CO", "BTN", "SB", "BB"];
   const pre: Situation[] = positions.flatMap((position) =>
     (["open", "option", "vsRaise", "vs3bet"] as const).flatMap((spot) =>
-      [false, true].map((headsUp) => ({ street: "preflop" as const, spot, position, headsUp })),
+      [false, true].flatMap((headsUp) => [0.2, 0.27, 0.48].map((potOdds) => ({ street: "preflop" as const, spot, position, headsUp, potOdds }))),
     ),
   );
   const post: Situation[] = [0.1, 0.25, 0.4, 0.6].map((potOdds) => ({ street: "postflop", facingBet: true, potOdds }));
@@ -64,7 +64,7 @@ describe("opponent model", () => {
   });
 
   it("follows each profile's preflop ranges", () => {
-    const open: Situation = { street: "preflop", spot: "open", position: "UTG", headsUp: false };
+    const open = { street: "preflop", spot: "open", position: "UTG", headsUp: false, potOdds: 0.27 } as const;
     const tp = profileModel(profiles.tightPassive);
     expect(rawProbs(tp, open, combo("Ah Ad"), null)).toEqual({ fold: 0, passive: 0, aggressive: 1 });
     expect(rawProbs(tp, open, combo("5h 5d"), null)).toEqual({ fold: 0, passive: 1, aggressive: 0 }); // limps small pairs
@@ -72,6 +72,20 @@ describe("opponent model", () => {
     // The reg mixes A5s as a 3-bet bluff half the time.
     const vsRaise: Situation = { ...open, spot: "vsRaise" };
     expect(rawProbs(profileModel(profiles.balancedReg), vsRaise, combo("Ah 5h"), null).aggressive).toBeCloseTo(0.5);
+  });
+
+  it("preflop, a shove gets called much less than a standard raise, but re-raising hands stay in", () => {
+    const facing = (potOdds: number): Situation => ({ street: "preflop", spot: "vsRaise", position: "BTN", headsUp: false, potOdds });
+    const reg = profileModel(profiles.balancedReg);
+    const standard = facing(0.27); // about 2.5–3× open
+    const shove = facing(0.48); // 100 BB into a few big blinds
+    const caller = combo("9h 9d"); // in the reg's calling range
+    const premium = combo("Ah Ad"); // in its re-raising range
+    expect(rawProbs(reg, shove, caller, null).passive).toBeLessThan(rawProbs(reg, standard, caller, null).passive / 2);
+    expect(rawProbs(reg, shove, premium, null).aggressive).toBe(1);
+    // Size doesn't change opening decisions (nobody has raised yet).
+    const open = (potOdds: number): Situation => ({ street: "preflop", spot: "open", position: "BTN", headsUp: false, potOdds });
+    expect(rawProbs(reg, open(0.48), caller, null)).toEqual(rawProbs(reg, open(0.2), caller, null));
   });
 
   it("folds more to bigger bets, except the calling station barely cares", () => {

@@ -10,6 +10,8 @@ type Props = {
   hero: number;
   /** Show bot styles on their seats. */
   revealStyles: boolean;
+  /** Show every player's cards (hand review). */
+  revealAll?: boolean;
 };
 
 /** Seat positions around the oval, with the player at the bottom and play going clockwise. */
@@ -49,7 +51,7 @@ function winnings(events: HandEvent[]): Map<number, number> {
   return won;
 }
 
-export function Table({ config, view, hero, revealStyles }: Props) {
+export function Table({ config, view, hero, revealStyles, revealAll = false }: Props) {
   const n = config.seats.length;
   const actions = streetActions(view.events);
   const won = view.complete ? winnings(view.events) : new Map<number, number>();
@@ -62,7 +64,7 @@ export function Table({ config, view, hero, revealStyles }: Props) {
       {view.players.map((p, seat) => {
         const player = config.seats[seat].player;
         const isHero = seat === hero;
-        const faceUp = isHero || (showdown && !p.folded);
+        const faceUp = isHero || revealAll || (showdown && !p.folded);
         const style = player.kind === "bot" && (revealStyles || view.complete) ? PROFILES[player.profile].name : null;
         const last = actions.get(seat);
         const winAmount = won.get(seat);

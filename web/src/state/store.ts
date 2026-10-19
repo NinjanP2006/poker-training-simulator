@@ -8,13 +8,14 @@ import { foldCurve } from "../bots/foldCurve";
 import { type CompiledProfiles, compileProfiles, type Model, populationModel, profileModel, StrengthCache } from "../bots/model";
 import { PROFILES } from "../bots/profiles";
 import { trackRanges } from "../bots/tracker";
-import type { Action, AnalysisOptions, DecisionAnalysis, HandView, Street, TableConfig } from "../core/types";
+import type { Action, AnalysisOptions, DecisionAnalysis, HandHistory, HandView, Street, TableConfig } from "../core/types";
 import { sameAction } from "../explain/format";
 import { type Grade, grade } from "../review/grade";
+import type { HandRepository } from "../storage/repo";
 import type { Core } from "../worker/coreClient";
 import { HERO, randomSeed, type SessionSettings, tableConfig } from "./session";
 
-export type Screen = "setup" | "play";
+export type Screen = "setup" | "play" | "review" | "stats";
 
 /** When the math panel shows: always, only after the player commits to a decision, or never (test mode). */
 export type CoachMode = "always" | "afterActing" | "off";
@@ -37,6 +38,8 @@ export type DecisionRecord = {
   grade: Grade;
   /** Each seat's range the analysis used. */
   ranges: Float32Array[];
+  /** How many events the hand had when the decision was made. */
+  eventIndex: number;
 };
 
 export type AnalysisState = {
@@ -50,8 +53,17 @@ export type AnalysisState = {
 };
 
 export type GameState = {
+  /** The compiled core and the saved-hand store, for screens that read them directly. */
+  core: Core;
+  repo: HandRepository | null;
   screen: Screen;
   settings: SessionSettings | null;
+  /** The saved session the current table belongs to. */
+  sessionId: string | null;
+  /** Hands saved since the app opened (screens refresh when it changes). */
+  savedHands: number;
+  /** Set if saving isn't possible (e.g. storage blocked); play continues without it. */
+  storageError: string | null;
   coachMode: CoachMode;
   /** Tell the analysis each bot's style (otherwise it assumes the population average). */
   revealStyles: boolean;
@@ -70,6 +82,8 @@ export type GameState = {
   load(): Promise<void>;
   startSession(settings: SessionSettings): Promise<void>;
   leaveTable(): void;
+  /** Switch screens. "play" without a table in progress goes to setup. */
+  goTo(screen: Screen): void;
   dealNext(): Promise<void>;
   heroAct(action: Action): Promise<void>;
   setCoachMode(mode: CoachMode): void;
@@ -86,9 +100,23 @@ export function modelLabel(state: Pick<GameState, "revealStyles" | "settings">, 
   return PROFILES[state.settings.lineup[seat - 1]].name;
 }
 
-export function createGameStore({ core, botDelayMs = 600 }: { core: Core; botDelayMs?: number }): GameStore {
+export function createGameStore({
+  core,
+  repo = null,
+  botDelayMs = 600,
+}: {
+  core: Core;
+  /** Where finished hands are saved; null to play without saving. */
+  repo?: HandRepository | null;
+  botDelayMs?: number;
+}): GameStore {
   // The analysis in flight for the current decision, so acting can wait for it.
   let pending: { handId: number; events: number; promise: Promise<Computed | null> } | null = null;
+  // Hands already saved (by store-local hand id), so each is saved once.
+  const saved = new Set<number>();
+  // Hand ids are never reused, even across sessions (a reused id would look
+  // already saved, and its hand would be silently dropped).
+  let lastHandId = 0;
 
   type Computed = { analysis: DecisionAnalysis; ranges: Float32Array[]; foldCurves: NonNullable<AnalysisOptions["foldCurves"]> };
 
@@ -138,9 +166,47 @@ export function createGameStore({ core, botDelayMs = 600 }: { core: Core; botDel
       return promise;
     }
 
-    /** After every change: let a bot act, or analyse the player's decision. */
+    /** Saves a finished hand with the player's graded decisions. */
+    async function saveHand(hand: HandProgress) {
+      const { sessionId, decisions, revealStyles } = get();
+      if (!repo || !sessionId || saved.has(hand.id)) return;
+      saved.add(hand.id);
+      const bigBlind = hand.config.bigBlind;
+      const history: HandHistory = {
+        id: crypto.randomUUID(),
+        sessionId,
+        number: hand.number,
+        playedAt: Date.now(),
+        seed: hand.seed,
+        config: hand.config,
+        events: hand.view.events,
+        heroSeat: HERO,
+        netBb: (hand.view.players[HERO].stack - hand.config.seats[HERO].stack) / bigBlind,
+        revealStyles,
+        analyses: decisions.map((d) => ({
+          ...d.analysis,
+          chosen: d.chosen,
+          evLost: d.grade.evLostBb,
+          label: d.grade.label,
+          category: d.grade.category,
+          eventIndex: d.eventIndex,
+        })),
+      };
+      try {
+        await repo.saveHand(history);
+        set({ savedHands: get().savedHands + 1 });
+      } catch (e) {
+        set({ storageError: `Couldn't save the hand: ${(e as Error).message}` });
+      }
+    }
+
+    /** After every change: let a bot act, analyse the player's decision, or save the finished hand. */
     function continueHand() {
       const hand = get().hand;
+      if (hand?.view.complete) {
+        void saveHand(hand);
+        return;
+      }
       const legal = hand?.view.legal;
       if (!hand || !legal) return;
       if (legal.seat === HERO) {
@@ -167,8 +233,13 @@ export function createGameStore({ core, botDelayMs = 600 }: { core: Core; botDel
     }
 
     return {
+      core,
+      repo,
       screen: "setup",
       settings: null,
+      sessionId: null,
+      savedHands: 0,
+      storageError: null,
       coachMode: "always",
       revealStyles: false,
       profiles: null,
@@ -191,13 +262,25 @@ export function createGameStore({ core, botDelayMs = 600 }: { core: Core; botDel
 
       async startSession(settings) {
         await get().load();
-        set({ settings, screen: "play", hand: null, lastReview: null, error: null });
+        let sessionId: string | null = null;
+        if (repo) {
+          try {
+            sessionId = await repo.startSession(settings, get().coachMode, get().revealStyles);
+          } catch (e) {
+            set({ storageError: `Hands won't be saved: ${(e as Error).message}` });
+          }
+        }
+        set({ settings, sessionId, screen: "play", hand: null, lastReview: null, error: null });
         await get().dealNext();
       },
 
       leaveTable() {
         pending = null;
-        set({ screen: "setup", hand: null, analysis: IDLE, decisions: [], lastReview: null, rangeOverrides: [] });
+        set({ screen: "setup", hand: null, sessionId: null, analysis: IDLE, decisions: [], lastReview: null, rangeOverrides: [] });
+      },
+
+      goTo(screen) {
+        set({ screen: screen === "play" && !get().hand ? "setup" : screen });
       },
 
       async dealNext() {
@@ -209,7 +292,7 @@ export function createGameStore({ core, botDelayMs = 600 }: { core: Core; botDel
         try {
           const view = await core.newHand(config, seed);
           const hand: HandProgress = {
-            id: (previous?.id ?? 0) + 1,
+            id: ++lastHandId,
             number: (previous?.number ?? 0) + 1,
             config,
             seed,
@@ -253,6 +336,7 @@ export function createGameStore({ core, botDelayMs = 600 }: { core: Core; botDel
               chosen: action,
               grade: grade(analysis, action, hand.config.bigBlind),
               ranges: computed.ranges,
+              eventIndex: events,
             };
             set({ decisions: [...get().decisions, record], lastReview: record });
           }

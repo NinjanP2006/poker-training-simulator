@@ -15,7 +15,7 @@ export type ActionClass = "fold" | "passive" | "aggressive";
 export type Probs = Record<ActionClass, number>;
 
 export type Situation =
-  | { street: "preflop"; spot: "open" | "option" | "vsRaise" | "vs3bet"; position: Position; headsUp: boolean }
+  | { street: "preflop"; spot: "open" | "option" | "vsRaise" | "vs3bet"; position: Position; headsUp: boolean; potOdds: number }
   | { street: "postflop"; facingBet: boolean; potOdds: number };
 
 type Ranges = { raise: Float32Array; passive: Float32Array };
@@ -78,8 +78,15 @@ export function situationFor(view: HandView, config: TableConfig, seat: number):
   const headsUp = config.seats.length === 2;
   const raises = view.raisesThisStreet;
   const spot = raises >= 2 ? "vs3bet" : raises === 1 ? "vsRaise" : toCall === 0 ? "option" : "open";
-  return { street: "preflop", spot, position, headsUp };
+  return { street: "preflop", spot, position, headsUp, potOdds: toCall > 0 ? toCall / (view.pot + toCall) : 0 };
 }
+
+/**
+ * The bet-to-pot ratio of a standard preflop raise (e.g. 2.5 BB facing the
+ * blinds: calling 1.5 into 4 is odds of 27%, a raise of about 0.6× the pot).
+ * The preflop ranges are written for raises around this size.
+ */
+const PREFLOP_STANDARD_RAISE = 0.6;
 
 /** How strongly each bucket's folding reacts to bet size: air, weak, medium fully; strong half; nuts not at all. */
 const BUCKET_SIZE_SENSITIVITY = [1, 1, 1, 0.5, 0];
@@ -138,7 +145,15 @@ function profileProbs(p: CompiledProfile, s: Situation, combo: number, strengths
             : p.open[s.position === "BB" ? "SB" : s.position];
     // Raise first; of the rest, the passive range calls/limps; the remainder folds.
     const aggressive = ranges.raise[combo];
-    const passive = (1 - aggressive) * ranges.passive[combo];
+    let passive = (1 - aggressive) * ranges.passive[combo];
+    if (s.spot === "vsRaise" || s.spot === "vs3bet") {
+      // Calling hands react to the raise's size, like postflop: a big raise
+      // (or a shove) gets called less, a min-raise a little more. Re-raising
+      // hands don't fold to size.
+      const sizeFactor = betToPot(s.potOdds) / PREFLOP_STANDARD_RAISE;
+      const scale = 1 / Math.sqrt(Math.max(0.1, 1 + p.spec.postflop.sizeSensitivity * (sizeFactor - 1)));
+      passive = Math.min(1 - aggressive, passive * scale);
+    }
     return { fold: 1 - aggressive - passive, passive, aggressive };
   }
 

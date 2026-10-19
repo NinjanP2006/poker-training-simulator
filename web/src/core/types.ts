@@ -163,19 +163,31 @@ export type AnalysisOptions = {
   foldCurves?: { seat: number; points: [number, number][] }[];
 };
 
-/** An analysis graded after the player acted (hand review, Phase 8). */
+/** An analysis graded after the player acted. */
 export type ReviewedDecision = DecisionAnalysis & {
   chosen: Action;
   evLost: number; // in big blinds
   label: DecisionLabel;
   category?: MistakeCategory;
+  /** How many events the hand had when the player made this decision. */
+  eventIndex: number;
 };
 
+/** A finished hand as saved for review and stats. */
 export type HandHistory = {
   id: string;
+  sessionId: string;
+  /** Hand number within its session. */
+  number: number;
+  playedAt: number; // ms since epoch
   seed: string; // replays the shuffle exactly
   config: TableConfig;
   events: HandEvent[];
+  heroSeat: number;
+  /** The player's result in big blinds (final stack minus starting stack). */
+  netBb: number;
+  /** Whether the coach was told each bot's style (affects the ranges it estimated). */
+  revealStyles: boolean;
   analyses: ReviewedDecision[]; // one per hero decision
 };
 
