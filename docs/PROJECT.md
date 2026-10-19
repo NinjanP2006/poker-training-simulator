@@ -34,7 +34,6 @@ After each hand you can replay it street by street and see which of your decisio
 ### Who it's for
 
 - **Primary:** recreational and improving players who know the rules but not the math.
-- **Secondary:** recruiters and interviewers. The project is meant to show systems work, performance engineering, and product polish.
 
 ### Goals
 
