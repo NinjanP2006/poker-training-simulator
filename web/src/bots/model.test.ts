@@ -5,6 +5,7 @@ import type { LegalActions } from "../core/types";
 import { wasmCore } from "../test/wasmCore";
 import { foldCurve } from "./foldCurve";
 import {
+  betToPot,
   bucketOf,
   type CompiledProfiles,
   compileProfiles,
@@ -81,6 +82,28 @@ describe("opponent model", () => {
     const regSwing = foldAt("balancedReg", 0.4) - foldAt("balancedReg", 0.15);
     const stationSwing = foldAt("callingStation", 0.4) - foldAt("callingStation", 0.15);
     expect(stationSwing).toBeLessThan(regSwing);
+  });
+
+  it("measures bet size against the pot", () => {
+    expect(betToPot(0.25)).toBeCloseTo(0.5); // half pot
+    expect(betToPot(1 / 3)).toBeCloseTo(1); // pot
+    expect(betToPot(0.4)).toBeCloseTo(2); // 2× pot
+    expect(betToPot(0.49)).toBeCloseTo(20, 0); // capped
+  });
+
+  it("calls huge overbets mostly with the nuts", () => {
+    const facing = (potOdds: number): Situation => ({ street: "postflop", facingBet: true, potOdds });
+    const reg = profileModel(profiles.balancedReg);
+    const fifteenPot = 15 / 31; // pot odds of a 15× pot bet
+    const medium = combo("Kh Qd"); // king-high with a backdoor flush draw: not a strong hand here
+    const nuts = combo("Ad Ac"); // top set
+    expect(rawProbs(reg, facing(fifteenPot), nuts, strengths).fold).toBe(0);
+    expect(rawProbs(reg, facing(fifteenPot), medium, strengths).fold).toBeGreaterThan(rawProbs(reg, facing(0.25), medium, strengths).fold + 0.3);
+    // A pot-sized bet is defended noticeably less than half pot, roughly in line with MDF (67% → 50%).
+    const keep = (po: number) => 1 - rawProbs(reg, facing(po), combo("Ah Kd"), strengths).fold;
+    const ratio = keep(1 / 3) / keep(0.25);
+    expect(ratio).toBeGreaterThan(0.6);
+    expect(ratio).toBeLessThan(0.95);
   });
 
   it("the population model averages the four profiles", () => {

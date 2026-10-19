@@ -1,15 +1,17 @@
+/* Developer page (?lab). Everything is scoped under .lab so it can't affect the trainer. */
+
 .lab {
   max-width: 960px;
   margin: 0 auto;
   padding: 1.5rem 1rem 3rem;
 }
 
-h1 {
+.lab h1 {
   margin: 0;
   font-size: 1.6rem;
 }
 
-.tag {
+.lab .tag {
   font-size: 0.8rem;
   font-weight: 500;
   padding: 0.1rem 0.5rem;
@@ -19,24 +21,24 @@ h1 {
   vertical-align: middle;
 }
 
-.subtitle,
-.hint {
+.lab .subtitle,
+.lab .hint {
   color: var(--muted);
 }
 
-.status {
+.lab .status {
   font-size: 0.9rem;
 }
 
-.status.ok {
+.lab .status.ok {
   color: var(--ok);
 }
 
-.error {
+.lab .error {
   color: var(--error);
 }
 
-.panel {
+.lab .panel {
   margin-top: 1.25rem;
   padding: 1rem 1.25rem;
   background: var(--panel);
@@ -44,18 +46,18 @@ h1 {
   border-radius: 10px;
 }
 
-.panel h2 {
+.lab .panel h2 {
   margin: 0 0 0.75rem;
   font-size: 1.15rem;
 }
 
-.fields {
+.lab .fields {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 0.75rem;
 }
 
-.fields label {
+.lab .fields label {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
@@ -63,30 +65,30 @@ h1 {
   color: var(--muted);
 }
 
-.fields .wide {
+.lab .fields .wide {
   grid-column: 1 / -1;
 }
 
-.readout {
+.lab .readout {
   display: flex;
   gap: 2rem;
   align-items: center;
   margin-top: 1rem;
 }
 
-.readout .big {
+.lab .readout .big {
   font-size: 2.4rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
-.readout .pm {
+.lab .readout .pm {
   font-size: 1rem;
   font-weight: 400;
   color: var(--muted);
 }
 
-.readout dl {
+.lab .readout dl {
   display: grid;
   grid-template-columns: auto auto;
   gap: 0.15rem 1rem;
@@ -94,257 +96,25 @@ h1 {
   font-size: 0.9rem;
 }
 
-.readout dt {
+.lab .readout dt {
   color: var(--muted);
 }
 
-.readout dd {
+.lab .readout dd {
   margin: 0;
 }
 
-.latency {
+.lab .latency {
   margin-top: 1rem;
   font-size: 0.9rem;
-}
-
-.table {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 0.75rem;
-  margin-top: 1rem;
-}
-
-.seat {
-  padding: 0.6rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 0.9rem;
-}
-
-.seat.acting {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px #1f6feb33;
-}
-
-.seat.folded {
-  opacity: 0.5;
-}
-
-.seat-name {
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.button-chip {
-  display: inline-grid;
-  place-items: center;
-  width: 1.3rem;
-  height: 1.3rem;
-  border-radius: 50%;
-  background: var(--text);
-  color: white;
-  font-size: 0.7rem;
-}
-
-.hole,
-.board {
-  display: flex;
-  gap: 0.3rem;
-  margin: 0.35rem 0;
-  min-height: 2.1rem;
-}
-
-.badges span {
-  font-size: 0.75rem;
-  margin-right: 0.3rem;
-  padding: 0 0.35rem;
-  border-radius: 4px;
-  background: #eef0f4;
-}
-
-.badges .to-act {
-  background: #e8eefc;
-  color: var(--accent);
-}
-
-.card {
-  display: inline-grid;
-  place-items: center;
-  min-width: 2.3rem;
-  height: 2.1rem;
-  padding: 0 0.3rem;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: white;
-  font-weight: 600;
-}
-
-.card.red {
-  color: var(--red-suit);
-}
-
-.middle {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  margin-top: 1rem;
-}
-
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: center;
-  margin-top: 1rem;
-}
-
-.actions input {
-  width: 6rem;
-}
-
-.log {
-  margin-top: 1rem;
-  font-size: 0.85rem;
-  color: var(--muted);
-}
-
-.toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 1rem;
-  font-size: 0.9rem;
-}
-
-.toolbar input[type="checkbox"] {
-  width: auto;
-}
-
-.style {
-  font-size: 0.75rem;
-  color: var(--muted);
-}
-
-.card.back {
-  background: repeating-linear-gradient(45deg, #3b5bdb, #3b5bdb 4px, #4c6ef5 4px, #4c6ef5 8px);
-  border-color: #364fc7;
-}
-
-.opponent-ranges {
-  margin: 0 0 0.5rem;
-  padding-left: 1.2rem;
-  font-size: 0.85rem;
-  color: var(--muted);
-}
-
-.analysis {
-  margin-top: 1.25rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--border);
-}
-
-.analysis h3 {
-  margin: 0 0 0.5rem;
-  font-size: 1rem;
-}
-
-.range-input {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.9rem;
-  color: var(--muted);
-  max-width: 32rem;
-}
-
-.metrics {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 0.75rem;
-  margin: 1rem 0;
-}
-
-.metrics dt {
-  font-size: 0.8rem;
-  color: var(--muted);
-}
-
-.metrics dd {
-  margin: 0;
-  font-size: 1.15rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.note {
-  font-size: 0.8rem;
-  font-weight: 400;
-  color: var(--muted);
-}
-
-.outs {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  margin-bottom: 1rem;
-  font-size: 0.9rem;
-}
-
-.out-cards {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.25rem;
-}
-
-.mini {
-  padding: 0 0.25rem;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  font-weight: 600;
-  font-size: 0.85rem;
-}
-
-.mini.red {
-  color: var(--red-suit);
-}
-
-.ev-table {
-  border-collapse: collapse;
-  font-size: 0.9rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.ev-table th,
-.ev-table td {
-  padding: 0.3rem 0.75rem;
-  text-align: right;
-  border-bottom: 1px solid var(--border);
-}
-
-.ev-table th:first-child,
-.ev-table td:first-child {
-  text-align: left;
-}
-
-.ev-table th {
-  font-weight: 500;
-  color: var(--muted);
-}
-
-.ev-table tr.best td {
-  background: #eaf6ee;
-  font-weight: 600;
 }
 
 @media (max-width: 640px) {
-  .fields {
+  .lab .fields {
     grid-template-columns: 1fr;
   }
 
-  .readout {
+  .lab .readout {
     flex-direction: column;
     align-items: flex-start;
   }

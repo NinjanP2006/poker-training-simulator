@@ -1,10 +1,17 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import './index.css'
-import App from './App.tsx'
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import App from "./App.tsx";
+import "./index.css";
+import { GameProvider } from "./state/GameContext";
+import { createGameStore } from "./state/store";
+import { getCore } from "./worker/core";
 
-createRoot(document.getElementById('root')!).render(
+const store = createGameStore({ core: getCore() });
+
+createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
+    <GameProvider store={store}>
+      <App />
+    </GameProvider>
   </StrictMode>,
-)
+);

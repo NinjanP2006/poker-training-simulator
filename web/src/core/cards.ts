@@ -46,5 +46,11 @@ export function cardToSymbol(card: Card): string {
   return RANKS[rankOf(card)] + SUIT_SYMBOLS[suitOf(card)];
 }
 
+const SUIT_NAMES = ["clubs", "diamonds", "hearts", "spades"];
+const RANK_NAMES = ["two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "jack", "queen", "king", "ace"];
+
+/** Spoken name for screen readers, e.g. "ace of spades". */
+export const cardName = (card: Card): string => `${RANK_NAMES[rankOf(card)]} of ${SUIT_NAMES[suitOf(card)]}`;
+
 /** Diamonds and hearts are red. */
 export const isRed = (card: Card): boolean => suitOf(card) === 1 || suitOf(card) === 2;

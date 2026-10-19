@@ -2,6 +2,7 @@
 // behind the same async `Core` interface the app uses.
 
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import * as wasm from "../wasm/poker_wasm";
 import { createApi } from "../worker/api";
 import type { Core } from "../worker/coreClient";
@@ -11,7 +12,9 @@ let core: Core | null = null;
 
 export function wasmCore(): Core {
   if (!core) {
-    wasm.initSync({ module: readFileSync(new URL("../wasm/poker_wasm_bg.wasm", import.meta.url)) });
+    // Resolved from the project folder (where Vitest runs): under jsdom,
+    // import.meta.url isn't a file:// URL.
+    wasm.initSync({ module: readFileSync(resolve(process.cwd(), "src/wasm/poker_wasm_bg.wasm")) });
     const api = createApi(wasm);
     const methods = Object.keys(api) as (keyof CoreApi)[];
     core = Object.fromEntries(

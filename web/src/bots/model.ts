@@ -81,6 +81,20 @@ export function situationFor(view: HandView, config: TableConfig, seat: number):
   return { street: "preflop", spot, position, headsUp };
 }
 
+/** How strongly each bucket's folding reacts to bet size: air, weak, medium fully; strong half; nuts not at all. */
+const BUCKET_SIZE_SENSITIVITY = [1, 1, 1, 0.5, 0];
+
+/**
+ * The bet's size relative to the pot before it, from the pot odds it offers:
+ * calling C into a pot of P (which includes the bet) gives odds x = C/(P+C),
+ * and the bet was C into P − C, so C/(P − C) = x / (1 − 2x).
+ * Half pot → 0.5, pot → 1, 2× pot → 2. Capped at 20× pot.
+ */
+export function betToPot(potOdds: number): number {
+  const x = Math.min(potOdds, 0.4878); // 20× pot
+  return x / (1 - 2 * x);
+}
+
 export function bucketOf(strength: number): number {
   let b = 0;
   while (b < BUCKET_EDGES.length && strength >= BUCKET_EDGES[b]) b++;
@@ -135,15 +149,20 @@ function profileProbs(p: CompiledProfile, s: Situation, combo: number, strengths
     const bet = post.bet[bucket];
     return { fold: 0, passive: 1 - bet, aggressive: bet };
   }
-  // Base frequencies are for a half-pot bet (pot odds 25%). Pricier bets get
-  // folded more, cheaper ones less, scaled by the profile's size sensitivity.
+  // Base frequencies are for a half-pot bet. Bigger bets shrink the share of
+  // hands that continue (roughly with the square root of the size, so a pot
+  // bet is defended about as much less as MDF says); smaller bets grow it.
+  // Size is measured against the pot, not by pot odds, which flatten out near
+  // 50% and can't tell a pot bet from a 15× overbet. The nuts never fold, and
+  // strong hands react half as much.
   const [fold, call, raise] = post.facingBet[bucket];
-  const sizeFactor = Math.min(2.5, Math.max(0.4, s.potOdds / 0.25));
-  const adjustedFold = Math.min(1, fold * (1 + post.sizeSensitivity * (sizeFactor - 1)));
   const rest = call + raise;
   if (rest === 0) return { fold: 1, passive: 0, aggressive: 0 };
-  const keep = 1 - adjustedFold;
-  return { fold: adjustedFold, passive: (keep * call) / rest, aggressive: (keep * raise) / rest };
+  const sizeFactor = betToPot(s.potOdds) / 0.5;
+  const sensitivity = post.sizeSensitivity * BUCKET_SIZE_SENSITIVITY[bucket];
+  const scale = 1 / Math.sqrt(Math.max(0.1, 1 + sensitivity * (sizeFactor - 1)));
+  const keep = Math.min(1, (1 - fold) * scale);
+  return { fold: 1 - keep, passive: (keep * call) / rest, aggressive: (keep * raise) / rest };
 }
 
 /**
