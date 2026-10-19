@@ -104,11 +104,17 @@ export function createGameStore({
   core,
   repo = null,
   botDelayMs = 600,
+  onHandFinished,
 }: {
   core: Core;
   /** Where finished hands are saved; null to play without saving. */
   repo?: HandRepository | null;
   botDelayMs?: number;
+  /**
+   * Called once per finished hand. Nothing is sent anywhere by default; this
+   * is where an anonymous usage counter (e.g. GoatCounter) can plug in later.
+   */
+  onHandFinished?: (info: { handNumber: number; decisions: number }) => void;
 }): GameStore {
   // The analysis in flight for the current decision, so acting can wait for it.
   let pending: { handId: number; events: number; promise: Promise<Computed | null> } | null = null;
@@ -169,8 +175,10 @@ export function createGameStore({
     /** Saves a finished hand with the player's graded decisions. */
     async function saveHand(hand: HandProgress) {
       const { sessionId, decisions, revealStyles } = get();
-      if (!repo || !sessionId || saved.has(hand.id)) return;
+      if (saved.has(hand.id)) return;
       saved.add(hand.id);
+      onHandFinished?.({ handNumber: hand.number, decisions: decisions.length });
+      if (!repo || !sessionId) return;
       const bigBlind = hand.config.bigBlind;
       const history: HandHistory = {
         id: crypto.randomUUID(),

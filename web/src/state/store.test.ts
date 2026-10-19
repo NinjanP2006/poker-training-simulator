@@ -150,6 +150,17 @@ describe("game store", () => {
     expect([...(await repo.handCounts()).values()]).toEqual([2, 2]);
   }, 60_000);
 
+  it("reports each finished hand once to the usage hook", async () => {
+    const finished: { handNumber: number; decisions: number }[] = [];
+    const store = createGameStore({ core: wasmCore(), botDelayMs: 0, onHandFinished: (info) => finished.push(info) });
+    await store.getState().startSession(PRESETS[1].settings);
+    await playPassively(store);
+    await store.getState().dealNext();
+    await playPassively(store);
+    await waitUntil(() => finished.length === 2, "two finished hands");
+    expect(finished.map((f) => f.handNumber)).toEqual([1, 2]);
+  }, 60_000);
+
   it("keeps playing if saving fails", async () => {
     const broken = createRepository(new TrainerDb(`test-${crypto.randomUUID()}`));
     broken.saveHand = async () => {

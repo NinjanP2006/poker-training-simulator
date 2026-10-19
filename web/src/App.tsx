@@ -17,6 +17,15 @@ export default function App() {
     void load();
   }, [load]);
 
+  // On a screen change, move focus to the new screen's heading so keyboard and
+  // screen-reader users start at the new content (not on the button they pressed).
+  useEffect(() => {
+    const heading = document.querySelector<HTMLElement>("main h1");
+    if (!heading) return;
+    heading.tabIndex = -1;
+    heading.focus({ preventScroll: true });
+  }, [screen]);
+
   if (new URLSearchParams(window.location.search).has("lab")) return <CoreLab />;
   return (
     <>

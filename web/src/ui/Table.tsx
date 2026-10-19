@@ -60,7 +60,7 @@ export function Table({ config, view, hero, revealStyles, revealAll = false }: P
   const bigBlind = config.bigBlind;
 
   return (
-    <div className="felt" aria-label="Poker table">
+    <div className="felt" role="group" aria-label="Poker table">
       {view.players.map((p, seat) => {
         const player = config.seats[seat].player;
         const isHero = seat === hero;
@@ -72,6 +72,7 @@ export function Table({ config, view, hero, revealStyles, revealAll = false }: P
           <div
             key={seat}
             className={`seat${view.toAct === seat ? " acting" : ""}${p.folded ? " folded" : ""}${isHero ? " hero" : ""}${winAmount ? " winner" : ""}`}
+            role="group"
             style={seatPosition(seat, hero, n, 42, 40)}
             aria-label={`${isHero ? "You" : `Bot ${seat}`}, ${positionOf(seat, config)}, stack ${bb(p.stack, bigBlind)}${p.folded ? ", folded" : ""}${view.toAct === seat ? ", to act" : ""}`}
           >
@@ -111,7 +112,7 @@ export function Table({ config, view, hero, revealStyles, revealAll = false }: P
       )}
 
       <div className="center">
-        <div className="board" aria-label="Board">
+        <div className="board" role="group" aria-label="Board">
           {view.board.map((c) => (
             <CardView key={c} card={c} size="lg" />
           ))}

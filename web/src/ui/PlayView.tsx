@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { describeEvents } from "../explain/events";
 import { HERO } from "../state/session";
 import { useGame } from "../state/useGame";
 import { ActionBar } from "./ActionBar";
@@ -36,8 +37,17 @@ export function PlayView() {
   const legal = view.legal;
   const heroTurn = legal?.seat === HERO;
 
+  // What just happened, for screen readers (sighted players see it on the table).
+  const lines = describeEvents(view.events, HERO, config.bigBlind);
+  const lastAction = [...view.events.keys()].reverse().find((i) => ["act", "board", "award"].includes(view.events[i].t));
+  const announcement = lastAction === undefined ? "" : lines[lastAction];
+
   return (
     <main className="play">
+      <h1 className="visually-hidden">Poker table, hand {hand.number}</h1>
+      <p className="visually-hidden" aria-live="polite">
+        {announcement}
+      </p>
       <header className="play-header">
         <span className="hand-no">Hand {hand.number}</span>
         <CoachModeToggle />

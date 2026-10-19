@@ -4,7 +4,7 @@
   --text: #1d2330;
   --muted: #5d6677;
   --border: #d9dde5;
-  --accent: #1f6feb;
+  --accent: #1b62d6; /* ≥ 4.5:1 on the page and panel backgrounds, and under white text */
   --ok: #1a7f37;
   --error: #c62828;
   --red-suit: #c62828;
