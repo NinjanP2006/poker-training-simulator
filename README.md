@@ -2,7 +2,7 @@
 
 A browser-based No-Limit Hold'em trainer: play against bots and see the math behind every decision, live. The hand evaluator, game engine, equity engine and decision analysis are written in Rust, compiled to WebAssembly, and run in a Web Worker; the interface is React and TypeScript.
 
-It's for players who know the rules but not the math. At every decision the math panel shows your equity against the opponent's estimated range, pot odds, MDF, SPR, implied odds, outs (clean and dirty), and the estimated EV of each option, with a plain-language explanation. After each hand you can replay it and see which decisions lost EV.
+At every decision the math panel shows your equity against the opponent's estimated range, pot odds, MDF, SPR, implied odds, outs (clean and dirty), and the estimated EV of each option, with a plain-language explanation. After each hand you can replay it and see which decisions lost EV.
 
 ## Features
 
@@ -86,14 +86,7 @@ A developer page with the raw equity calculator and core speed is at `http://loc
 
 CI runs all of these on every push.
 
-## Deploying
 
-The app is a static site. Hosting build machines don't have Rust or wasm-pack, so build it in CI or locally, then upload the files:
-
-- **From CI**: every run of the `web` job uploads the built site as an artifact named `site`. Download it from the run's page on GitHub.
-- **Locally**: `cd web && pnpm build` produces `web/dist`.
-
-Then upload that folder to any static host. For example, Cloudflare Pages (`npx wrangler pages deploy web/dist`, or a direct upload in the dashboard), Vercel, or Netlify. They all serve `.wasm` files with the right content type.
 
 ## Project layout
 
@@ -110,10 +103,4 @@ bench/spots/         200-spot equity benchmark with eval7 reference values
 fixtures/            Formula test cases shared by the Rust and TypeScript tests
 ```
 
-## Limitations
 
-- **EVs are estimates.** Each one counts the current street only and assumes a showdown after it, as the plan's math reference specifies. The app labels them as estimates everywhere. One known effect is that, preflop, shoving a premium hand can rate above a normal raise, because the model doesn't credit the raise with value won on later streets.
-- **Opponent ranges** are only as good as the opponent model. The grid shows the assumption, and you can edit it.
-- **The bots are deliberately simple and exploitable.** They're a teaching tool, not a strong opponent.
-- **Multiway spots** use simplifications: Monte Carlo equity, and a single "toughest caller" when a bet is called.
-- **Everything stays on your device.** There are no accounts or cross-device sync yet.
