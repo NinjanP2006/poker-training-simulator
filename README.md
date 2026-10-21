@@ -1,5 +1,7 @@
 # Poker Trainer
 
+**Try it live: [poker-trainer-3xz.pages.dev](https://poker-trainer-3xz.pages.dev)** (no sign-up; hands are saved only in your browser).
+
 A browser-based No-Limit Hold'em trainer: play against bots and see the math behind every decision, live. The hand evaluator, game engine, equity engine and decision analysis are written in Rust, compiled to WebAssembly, and run in a Web Worker; the interface is React and TypeScript.
 
 At every decision the math panel shows your equity against the opponent's estimated range, pot odds, MDF, SPR, implied odds, outs (clean and dirty), and the estimated EV of each option, with a plain-language explanation. After each hand you can replay it and see which decisions lost EV.
